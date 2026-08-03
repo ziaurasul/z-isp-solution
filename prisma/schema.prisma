@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ISP Business (Tenant)
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  password    String
+  phone       String?
+  address     String?
+  logo        String?
+  plan        String   @default("trial") // trial, basic, pro, enterprise
+  trialEndsAt DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customers   Customer[]
+  vendors     Vendor[]
+  employees   Employee[]
+  connections Connection[]
+  invoices    Invoice[]
+  expenses    Expense[]
+  payments    Payment[]
+  notifications Notification[]
+}
+
+// Customer
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  phone      String
+  email      String?
+  address    String?
+  cnic       String?
+  status     String   @default("active") // active, inactive, suspended
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business    Business     @relation(fields: [businessId], references: [id])
+  connections Connection[]
+  payments    Payment[]
+}
+
+// Vendor / Supplier
+model Vendor {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  phone      String
+  email      String?
+  address    String?
+  service    String?
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+  expenses Expense[]
+}
+
+// Employee
+model Employee {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  phone      String
+  email      String?
+  role       String   @default("technician") // admin, technician, collector, operator
+  salary     Float?
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+  expenses Expense[]
+}
+
+// Connection / Package
+model Connection {
+  id          String   @id @default(cuid())
+  businessId  String
+  customerId  String
+  packageType String   // internet, cable, iptv
+  packageName String?
+  speed       String?
+  monthlyFee  Float
+  status      String   @default("active") // active, expired, disconnected
+  activatedAt DateTime @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business   Business   @relation(fields: [businessId], references: [id])
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  invoices   Invoice[]
+  payments   Payment[]
+}
+
+// Invoice
+model Invoice {
+  id            String   @id @default(cuid())
+  businessId    String
+  connectionId  String
+  month         String   // YYYY-MM
+  amount        Float
+  status        String   @default("unpaid") // paid, unpaid, overdue, partial
+  dueDate       DateTime?
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business   Business   @relation(fields: [businessId], references: [id])
+  connection Connection @relation(fields: [connectionId], references: [id])
+  payments   Payment[]
+}
+
+// Payment
+model Payment {
+  id            String   @id @default(cuid())
+  businessId    String
+  customerId    String
+  connectionId  String?
+  invoiceId     String?
+  amount        Float
+  method        String?  // cash, jazzcash, easypaisa, bank, online
+  collectedBy   String?
+  note          String?
+  createdAt     DateTime @default(now())
+
+  business   Business   @relation(fields: [businessId], references: [id])
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  connection Connection? @relation(fields: [connectionId], references: [id])
+  invoice    Invoice?   @relation(fields: [invoiceId], references: [id])
+}
+
+// Expense
+model Expense {
+  id          String   @id @default(cuid())
+  businessId  String
+  vendorId    String?
+  employeeId  String?
+  category    String   // rent, salary, equipment, maintenance, utility, transport, other
+  amount      Float
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  vendor   Vendor?   @relation(fields: [vendorId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
+}
+
+// Notification
+model Notification {
+  id         String   @id @default(cuid())
+  businessId String
+  title      String
+  message    String
+  type       String   @default("info") // info, warning, expiry, payment
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+}
