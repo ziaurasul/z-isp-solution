@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
-import { db } from '@/lib/db';
+import { db, ensureTables } from '@/lib/db';
 
 const COOKIE_NAME = 'biz_token';
 
@@ -13,6 +13,7 @@ export function comparePassword(password: string, hash: string): Promise<boolean
 }
 
 export async function getBusinessFromRequest() {
+  await ensureTables();
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
 
