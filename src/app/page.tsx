@@ -30,7 +30,8 @@ import {
 } from 'recharts';
 import type {
   Business, Customer, Vendor, Employee, Connection, Invoice,
-  Payment, Expense, Notification as Notif, DashboardData, Page, PaginatedResponse
+  Payment, Expense, Notification as Notif, DashboardData, Page, PaginatedResponse,
+  AdminBusiness, AdminStats, AdminBusinessesResponse
 } from '@/lib/types';
 
 const CHART_COLORS = ['#10b981', '#f59e0b', '#6366f1', '#ef4444', '#06b6d4', '#8b5cf6'];
@@ -156,6 +157,7 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
     { id: 'expenses', label: 'Expenses', icon: <CreditCard className="h-5 w-5" /> },
     { id: 'notifications', label: 'Notifications', icon: <Bell className="h-5 w-5" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="h-5 w-5" /> },
+    ...(business.isPlatformAdmin ? [{ id: 'admin' as Page, label: 'Platform Admin', icon: <Shield className="h-5 w-5" /> }] : []),
   ];
 
   const trialDaysLeft = business.trialEndsAt ? Math.max(0, Math.ceil((new Date(business.trialEndsAt).getTime() - Date.now()) / 86400000)) : 0;
@@ -237,6 +239,7 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
           {page === 'expenses' && <ExpensesPage />}
           {page === 'notifications' && <NotificationsPage />}
           {page === 'settings' && <SettingsPage business={business} />}
+          {page === 'admin' && business.isPlatformAdmin && <AdminPage />}
         </div>
       </main>
     </div>
@@ -859,6 +862,80 @@ function SettingsPage({ business }: { business: Business }) {
         <Button variant="outline" className="w-full justify-start" onClick={() => { if (confirm('Seed demo data? This will add sample customers, connections, and payments.')) { fetch('/api/dashboard').then(() => alert('Demo data would be seeded in production.')); } }}><ClipboardList className="h-4 w-4 mr-2" />Seed Demo Data</Button>
         <Button variant="outline" className="w-full justify-start text-red-600" onClick={() => { if (confirm('Are you sure you want to delete ALL data? This cannot be undone.')) { alert('Data deletion would run in production.'); } }}><Trash2 className="h-4 w-4 mr-2" />Delete All Data</Button>
       </CardContent></Card>
+    </div>
+  );
+}
+
+// ==================== ADMIN PAGE ====================
+function AdminPage() {
+  const [businesses, setBusinesses] = useState<AdminBusiness[]>([]);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  const fetchBusinesses = useCallback(async (p = page, s = search) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(p), limit: '20' });
+      if (s) params.set('search', s);
+      const r = await api<AdminBusinessesResponse>(`/api/admin/businesses?${params}`);
+      setBusinesses(r.data); setStats(r.stats); setTotal(r.total);
+    } catch {} finally { setLoading(false); }
+  }, [page, search]);
+
+  useEffect(() => { fetchBusinesses(); }, [fetchBusinesses]);
+
+  const toggleActive = async (b: AdminBusiness) => {
+    await api(`/api/admin/businesses/${b.id}`, { method: 'PUT', body: JSON.stringify({ isActive: !b.isActive }) });
+    fetchBusinesses();
+  };
+
+  const changePlan = async (id: string, plan: string) => {
+    await api(`/api/admin/businesses/${id}`, { method: 'PUT', body: JSON.stringify({ plan }) });
+    fetchBusinesses();
+  };
+
+  const deleteBusiness = async (id: string) => {
+    if (!confirm('Delete this business and ALL its data? This cannot be undone.')) return;
+    await api(`/api/admin/businesses/${id}`, { method: 'DELETE' });
+    fetchBusinesses();
+  };
+
+  const planColor: Record<string, string> = { trial: 'bg-amber-100 text-amber-700', basic: 'bg-blue-100 text-blue-700', pro: 'bg-violet-100 text-violet-700', enterprise: 'bg-emerald-100 text-emerald-700' };
+
+  return (
+    <div className="space-y-6">
+      <div><h2 className="text-2xl font-bold">Platform Admin</h2><p className="text-sm text-gray-500">Manage all ISP businesses on the platform</p></div>
+      {stats && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[
+            { label: 'Total Businesses', value: stats.totalBusinesses, icon: <Building2 className="h-5 w-5" />, color: 'text-blue-600 bg-blue-50' },
+            { label: 'Total Customers', value: stats.totalCustomers, icon: <Users className="h-5 w-5" />, color: 'text-emerald-600 bg-emerald-50' },
+            { label: 'Active Connections', value: stats.totalActiveConnections, icon: <Wifi className="h-5 w-5" />, color: 'text-violet-600 bg-violet-50' },
+            { label: 'Monthly Revenue', value: formatCurrency(stats.totalMonthlyRevenue), icon: <DollarSign className="h-5 w-5" />, color: 'text-amber-600 bg-amber-50' },
+            { label: 'Total Collected', value: formatCurrency(stats.totalPaymentsCollected), icon: <TrendingUp className="h-5 w-5" />, color: 'text-cyan-600 bg-cyan-50' },
+          ].map((s, i) => (
+            <Card key={i} className="border-0 shadow-sm"><CardContent className="p-4">
+              <div className={`p-2 rounded-xl ${s.color} w-fit`}>{s.icon}</div>
+              <p className="mt-2 text-xl font-bold text-gray-900">{s.value}</p>
+              <p className="text-xs text-gray-500">{s.label}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input placeholder="Search businesses..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" /></div>
+      </div>
+      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Business</TableHead><TableHead>Plan</TableHead><TableHead className="hidden sm:table-cell">Customers</TableHead><TableHead className="hidden sm:table-cell">Connections</TableHead><TableHead>Status</TableHead><TableHead className="hidden md:table-cell">Joined</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+          {businesses.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400">No businesses signed up yet</TableCell></TableRow> : businesses.map(b => (
+            <TableRow key={b.id}><TableCell><div><p className="font-medium">{b.name}</p><p className="text-xs text-gray-500">{b.email}</p></div></TableCell><TableCell><Badge className={planColor[b.plan] || ''}>{b.plan}</Badge></TableCell><TableCell className="hidden sm:table-cell">{b._count.customers}</TableCell><TableCell className="hidden sm:table-cell">{b._count.connections}</TableCell><TableCell><Badge className={b.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>{b.isActive ? 'Active' : 'Disabled'}</Badge></TableCell><TableCell className="hidden md:table-cell text-gray-500 text-sm">{formatDate(b.createdAt)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Select value={b.plan} onValueChange={v => changePlan(b.id, v)}><SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="trial">Trial</SelectItem><SelectItem value="basic">Basic</SelectItem><SelectItem value="pro">Pro</SelectItem><SelectItem value="enterprise">Enterprise</SelectItem></SelectContent></Select><Button variant="ghost" size="icon" className={`h-8 w-8 ${!b.isActive ? 'text-emerald-600' : 'text-amber-600'}`} onClick={() => toggleActive(b)} title={b.isActive ? 'Disable' : 'Activate'}>{b.isActive ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => deleteBusiness(b.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          ))}
+        </TableBody></Table></CardContent></Card>
+      )}
+      <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
     </div>
   );
 }

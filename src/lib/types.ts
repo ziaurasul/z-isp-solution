@@ -8,7 +8,31 @@ export interface Business {
   plan: string;
   trialEndsAt: string | null;
   isActive: boolean;
+  isPlatformAdmin?: boolean;
   trialExpired?: boolean;
+}
+
+export interface AdminBusiness {
+  id: string; name: string; email: string; phone: string | null;
+  plan: string; trialEndsAt: string | null; isActive: boolean;
+  isPlatformAdmin: boolean; createdAt: string;
+  _count: { customers: number; connections: number; payments: number };
+}
+
+export interface AdminStats {
+  totalBusinesses: number;
+  totalCustomers: number;
+  totalActiveConnections: number;
+  totalMonthlyRevenue: number;
+  totalPaymentsCollected: number;
+}
+
+export interface AdminBusinessesResponse {
+  data: AdminBusiness[];
+  total: number;
+  page: number;
+  limit: number;
+  stats: AdminStats;
 }
 
 export interface Customer {
@@ -137,4 +161,4 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
-export type Page = 'dashboard' | 'customers' | 'connections' | 'billing' | 'vendors' | 'employees' | 'expenses' | 'notifications' | 'settings';
+export type Page = 'dashboard' | 'customers' | 'connections' | 'billing' | 'vendors' | 'employees' | 'expenses' | 'notifications' | 'settings' | 'admin';

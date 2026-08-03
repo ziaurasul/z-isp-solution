@@ -29,15 +29,20 @@ export async function POST(request: NextRequest) {
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 30);
 
+    // First user ever = platform admin (lifetime access)
+    const totalUsers = await db.business.count();
+    const isFirstUser = totalUsers === 0;
+
     const business = await db.business.create({
       data: {
-        name: businessName,
+        name: isFirstUser ? 'Z ISP Solution - Admin' : businessName,
         email,
         password: hashedPassword,
         phone: phone || null,
-        plan: 'trial',
-        trialEndsAt,
+        plan: isFirstUser ? 'enterprise' : 'trial',
+        trialEndsAt: isFirstUser ? null : trialEndsAt,
         isActive: true,
+        isPlatformAdmin: isFirstUser,
       },
     });
 
@@ -49,6 +54,7 @@ export async function POST(request: NextRequest) {
       plan: business.plan,
       trialEndsAt: business.trialEndsAt,
       isActive: business.isActive,
+      isPlatformAdmin: business.isPlatformAdmin,
       createdAt: business.createdAt,
     });
 

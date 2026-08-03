@@ -27,6 +27,7 @@ export async function GET() {
       plan: business.plan,
       trialEndsAt: business.trialEndsAt,
       isActive: business.isActive,
+      isPlatformAdmin: business.isPlatformAdmin,
       trialExpired,
       createdAt: business.createdAt,
     });

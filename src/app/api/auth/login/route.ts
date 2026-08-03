@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       plan: business.plan,
       trialEndsAt: business.trialEndsAt,
       isActive: business.isActive,
+      isPlatformAdmin: business.isPlatformAdmin,
       createdAt: business.createdAt,
     });
 
