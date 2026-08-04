@@ -1,34 +1,15 @@
 import { PrismaClient } from '@prisma/client'
-import { neon } from '@neondatabase/serverless'
-import { PrismaNeon } from '@prisma/adapter-neon'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   tablesEnsured: boolean | undefined
 }
 
-function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL!
-  
-  // In Vercel serverless, use Neon's serverless driver via HTTP
-  // This avoids TCP connection issues with Neon's cold starts
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      const sql = neon(connectionString)
-      const adapter = new PrismaNeon(sql)
-      return new PrismaClient({ adapter, log: [] })
-    } catch {
-      // Fallback to standard PrismaClient if adapter fails
-      return new PrismaClient({ log: [] })
-    }
-  }
-  
-  return new PrismaClient({
+export const db =
+  globalForPrisma.prisma ??
+  new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['error'] : [],
   })
-}
-
-export const db = globalForPrisma.prisma ?? createPrismaClient()
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
