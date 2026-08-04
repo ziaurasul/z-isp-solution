@@ -7,11 +7,13 @@ const globalForPrisma = globalThis as unknown as {
 
 export const db =
   globalForPrisma.prisma ??
-  new PrismaClient()
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['error'] : [],
+  })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
-// Auto-create tables on first use in production (after deploy to fresh DB)
+// Auto-create tables on first request in production (fresh Neon DB)
 export async function ensureTables() {
   if (globalForPrisma.tablesEnsured) return;
   if (process.env.NODE_ENV === 'production') {
@@ -19,7 +21,7 @@ export async function ensureTables() {
       await db.$executeRawUnsafe(`SELECT 1 FROM "Business" LIMIT 1`);
       globalForPrisma.tablesEnsured = true;
     } catch {
-      // Tables don't exist yet, create them
+      // Tables don't exist yet — create them with PostgreSQL-compatible syntax
       await db.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "Business" (
           "id" TEXT NOT NULL PRIMARY KEY,
@@ -30,11 +32,11 @@ export async function ensureTables() {
           "address" TEXT,
           "logo" TEXT,
           "plan" TEXT NOT NULL DEFAULT 'trial',
-          "trialEndsAt" DATETIME,
+          "trialEndsAt" TIMESTAMP,
           "isActive" BOOLEAN NOT NULL DEFAULT true,
           "isPlatformAdmin" BOOLEAN NOT NULL DEFAULT false,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE UNIQUE INDEX IF NOT EXISTS "Business_email_key" ON "Business"("email");
 
@@ -47,8 +49,8 @@ export async function ensureTables() {
           "address" TEXT,
           "cnic" TEXT,
           "status" TEXT NOT NULL DEFAULT 'active',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
         );
 
@@ -61,8 +63,8 @@ export async function ensureTables() {
           "address" TEXT,
           "service" TEXT,
           "status" TEXT NOT NULL DEFAULT 'active',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
         );
 
@@ -75,8 +77,8 @@ export async function ensureTables() {
           "role" TEXT NOT NULL DEFAULT 'technician',
           "salary" DOUBLE PRECISION,
           "status" TEXT NOT NULL DEFAULT 'active',
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
         );
 
@@ -89,10 +91,10 @@ export async function ensureTables() {
           "speed" TEXT,
           "monthlyFee" DOUBLE PRECISION NOT NULL,
           "status" TEXT NOT NULL DEFAULT 'active',
-          "activatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "expiresAt" DATETIME,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "activatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "expiresAt" TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE
         );
@@ -104,10 +106,10 @@ export async function ensureTables() {
           "month" TEXT NOT NULL,
           "amount" DOUBLE PRECISION NOT NULL,
           "status" TEXT NOT NULL DEFAULT 'unpaid',
-          "dueDate" DATETIME,
-          "paidAt" DATETIME,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "dueDate" TIMESTAMP,
+          "paidAt" TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("connectionId") REFERENCES "Connection"("id") ON DELETE CASCADE
         );
@@ -122,7 +124,7 @@ export async function ensureTables() {
           "method" TEXT,
           "collectedBy" TEXT,
           "note" TEXT,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE,
           FOREIGN KEY ("connectionId") REFERENCES "Connection"("id") ON DELETE SET NULL,
@@ -137,8 +139,8 @@ export async function ensureTables() {
           "category" TEXT NOT NULL,
           "amount" DOUBLE PRECISION NOT NULL,
           "description" TEXT,
-          "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "date" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("vendorId") REFERENCES "Vendor"("id") ON DELETE SET NULL,
           FOREIGN KEY ("employeeId") REFERENCES "Employee"("id") ON DELETE SET NULL
@@ -151,7 +153,7 @@ export async function ensureTables() {
           "message" TEXT NOT NULL,
           "type" TEXT NOT NULL DEFAULT 'info',
           "isRead" BOOLEAN NOT NULL DEFAULT false,
-          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
         );
       `);
