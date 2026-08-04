@@ -21,9 +21,9 @@ export async function ensureTables() {
       await db.$executeRawUnsafe(`SELECT 1 FROM "Business" LIMIT 1`);
       globalForPrisma.tablesEnsured = true;
     } catch {
-      // Tables don't exist yet — create them with PostgreSQL-compatible syntax
-      await db.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "Business" (
+      // Tables don't exist yet — create them one by one
+      const statements = [
+        `CREATE TABLE IF NOT EXISTS "Business" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "name" TEXT NOT NULL,
           "email" TEXT NOT NULL,
@@ -37,10 +37,9 @@ export async function ensureTables() {
           "isPlatformAdmin" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS "Business_email_key" ON "Business"("email");
-
-        CREATE TABLE IF NOT EXISTS "Customer" (
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS "Business_email_key" ON "Business"("email")`,
+        `CREATE TABLE IF NOT EXISTS "Customer" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "name" TEXT NOT NULL,
@@ -52,9 +51,8 @@ export async function ensureTables() {
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS "Vendor" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Vendor" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "name" TEXT NOT NULL,
@@ -66,9 +64,8 @@ export async function ensureTables() {
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS "Employee" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Employee" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "name" TEXT NOT NULL,
@@ -80,9 +77,8 @@ export async function ensureTables() {
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS "Connection" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Connection" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "customerId" TEXT NOT NULL,
@@ -97,9 +93,8 @@ export async function ensureTables() {
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS "Invoice" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Invoice" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "connectionId" TEXT NOT NULL,
@@ -112,9 +107,8 @@ export async function ensureTables() {
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("connectionId") REFERENCES "Connection"("id") ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS "Payment" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Payment" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "customerId" TEXT NOT NULL,
@@ -129,9 +123,8 @@ export async function ensureTables() {
           FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE,
           FOREIGN KEY ("connectionId") REFERENCES "Connection"("id") ON DELETE SET NULL,
           FOREIGN KEY ("invoiceId") REFERENCES "Invoice"("id") ON DELETE SET NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS "Expense" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Expense" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "vendorId" TEXT,
@@ -144,9 +137,8 @@ export async function ensureTables() {
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
           FOREIGN KEY ("vendorId") REFERENCES "Vendor"("id") ON DELETE SET NULL,
           FOREIGN KEY ("employeeId") REFERENCES "Employee"("id") ON DELETE SET NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS "Notification" (
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Notification" (
           "id" TEXT NOT NULL PRIMARY KEY,
           "businessId" TEXT NOT NULL,
           "title" TEXT NOT NULL,
@@ -155,8 +147,11 @@ export async function ensureTables() {
           "isRead" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
-        );
-      `);
+        )`,
+      ];
+      for (const stmt of statements) {
+        await db.$executeRawUnsafe(stmt);
+      }
       globalForPrisma.tablesEnsured = true;
     }
   }
