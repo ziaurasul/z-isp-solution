@@ -54,6 +54,7 @@ model Customer {
   business    Business     @relation(fields: [businessId], references: [id])
   connections Connection[]
   payments    Payment[]
+  messages    Message[]
 }
 
 // Vendor / Supplier
