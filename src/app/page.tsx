@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Users, Wifi, Cable, Tv, DollarSign, TrendingUp, TrendingDown,
   AlertTriangle, Bell, Settings, LogOut, Plus, Search, RefreshCw,
@@ -8,7 +8,8 @@ import {
   UserPlus, Package, Receipt, CreditCard, Building2, UserCog,
   BarChart3, ArrowUpRight, ArrowDownRight, Calendar, Clock,
   Menu, Filter, Download, Send, CheckCircle2, XCircle, AlertCircle,
-  FileText, ClipboardList, Shield, Zap, Monitor, Phone, Mail, MapPin
+  FileText, ClipboardList, Shield, Zap, Monitor, Phone, Mail, MapPin,
+  Inbox, ArrowLeft, User, WifiOff, Hash
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,6 +59,30 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// ==================== SEARCH RESULT TYPE ====================
+interface SearchResult {
+  type: 'customer' | 'connection' | 'payment' | 'invoice' | 'vendor' | 'employee';
+  id: string;
+  title: string;
+  subtitle: string;
+  extra: string;
+  businessId: string;
+}
+
+// ==================== ADMIN DEEP DIVE DATA ====================
+interface AdminBusinessDetail {
+  business: { id: string; name: string; email: string; phone: string | null; address: string | null; plan: string; trialEndsAt: string | null; isActive: boolean; isPlatformAdmin: boolean; createdAt: string; updatedAt: string };
+  customers: Customer[];
+  connections: (Connection & { customer?: { id: string; name: string; phone: string } })[];
+  invoices: Invoice[];
+  payments: Payment[];
+  expenses: Expense[];
+  employees: Employee[];
+  vendors: Vendor[];
+  notifications: Notif[];
+  stats: { totalCustomers: number; activeConnections: number; monthlyRevenue: number; collectedThisMonth: number; expensesThisMonth: number; unpaidInvoices: number };
+}
+
 // ==================== API HELPER ====================
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
@@ -65,9 +90,50 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function formatCurrency(n: number) { return 'PKR ' + Number(n || 0).toLocaleString(); }
+function formatCurrency(n: number) { return 'Rs ' + Number(n || 0).toLocaleString(); }
 function formatDate(d: string) { if (!d) return '-'; return new Date(d).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }); }
 function formatDateTime(d: string) { if (!d) return '-'; return new Date(d).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+
+// ==================== LOADING SKELETON ====================
+function SkeletonRow({ cols = 5 }: { cols?: number }) {
+  return (
+    <TableRow>
+      {Array.from({ length: cols }).map((_, i) => (
+        <TableCell key={i}><div className="h-4 bg-gray-200 rounded animate-pulse w-full" /></TableCell>
+      ))}
+    </TableRow>
+  );
+}
+
+function SkeletonCards({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card key={i} className="border-0 shadow-sm"><CardContent className="p-5">
+          <div className="flex items-start justify-between">
+            <div className="h-10 w-10 bg-gray-200 rounded-xl animate-pulse" />
+            <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
+          </div>
+          <div className="mt-3 h-7 w-28 bg-gray-200 rounded animate-pulse" />
+          <div className="mt-2 h-4 w-36 bg-gray-200 rounded animate-pulse" />
+        </CardContent></Card>
+      ))}
+    </div>
+  );
+}
+
+// ==================== EMPTY STATE ====================
+function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+        <Icon className="h-7 w-7 text-gray-400" />
+      </div>
+      <p className="font-medium text-gray-600">{title}</p>
+      <p className="text-sm text-gray-400 mt-1">{description}</p>
+    </div>
+  );
+}
 
 // ==================== AUTH SCREENS ====================
 function AuthScreen({ onLogin }: { onLogin: (b: Business) => void }) {
@@ -95,7 +161,7 @@ function AuthScreen({ onLogin }: { onLogin: (b: Business) => void }) {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white mb-4 shadow-lg shadow-emerald-200">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white mb-4 shadow-lg shadow-emerald-200 animate-bounce">
             <Zap className="h-8 w-8" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Z ISP Solution</h1>
@@ -130,12 +196,313 @@ function AuthScreen({ onLogin }: { onLogin: (b: Business) => void }) {
   );
 }
 
+// ==================== GLOBAL SEARCH COMPONENT ====================
+function GlobalSearchDialog({ open, onOpenChange, onNavigate }: { open: boolean; onOpenChange: (o: boolean) => void; onNavigate: (page: Page) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (open) {
+      setQuery('');
+      setResults([]);
+      setSelectedIdx(-1);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [open]);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const r = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q.trim())}`);
+      setResults(r.results);
+      setSelectedIdx(-1);
+    } catch {} finally { setSearching(false); }
+  }, []);
+
+  const handleInput = (v: string) => {
+    setQuery(v);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(v), 300);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { onOpenChange(false); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(p => Math.min(p + 1, results.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(p => Math.max(p - 1, -1)); }
+    if (e.key === 'Enter' && selectedIdx >= 0 && results[selectedIdx]) {
+      const r = results[selectedIdx];
+      const pageMap: Record<string, Page> = { customer: 'customers', connection: 'connections', payment: 'billing', invoice: 'billing', vendor: 'vendors', employee: 'employees' };
+      onNavigate(pageMap[r.type] || 'customers');
+      onOpenChange(false);
+    }
+  };
+
+  const grouped = {
+    customers: results.filter(r => r.type === 'customer'),
+    connections: results.filter(r => r.type === 'connection'),
+    payments: results.filter(r => r.type === 'payment'),
+    invoices: results.filter(r => r.type === 'invoice'),
+    vendors: results.filter(r => r.type === 'vendor'),
+    employees: results.filter(r => r.type === 'employee'),
+  };
+
+  const typeIcon: Record<string, React.ReactNode> = {
+    customer: <User className="h-4 w-4 text-blue-500" />,
+    connection: <Wifi className="h-4 w-4 text-emerald-500" />,
+    payment: <DollarSign className="h-4 w-4 text-amber-500" />,
+    invoice: <FileText className="h-4 w-4 text-violet-500" />,
+    vendor: <Building2 className="h-4 w-4 text-cyan-500" />,
+    employee: <UserCog className="h-4 w-4 text-purple-500" />,
+  };
+
+  const typeLabel: Record<string, string> = { customer: 'Customer', connection: 'Connection', payment: 'Payment', invoice: 'Invoice', vendor: 'Vendor', employee: 'Employee' };
+  const typeBadgeColor: Record<string, string> = { customer: 'bg-blue-100 text-blue-700', connection: 'bg-emerald-100 text-emerald-700', payment: 'bg-amber-100 text-amber-700', invoice: 'bg-violet-100 text-violet-700', vendor: 'bg-cyan-100 text-cyan-700', employee: 'bg-purple-100 text-purple-700' };
+
+  let globalIdx = -1;
+  const groups = Object.entries(grouped).filter(([, items]) => items.length > 0);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
+        <div className="flex items-center border-b px-4 py-3 gap-3">
+          <Search className="h-5 w-5 text-gray-400 flex-shrink-0" />
+          <Input ref={inputRef} value={query} onChange={e => handleInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Search customers, connections, payments, invoices, vendors, employees..." className="border-0 shadow-none focus-visible:ring-0 text-base h-auto py-0" />
+          <kbd className="hidden sm:inline-flex items-center gap-1 rounded border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs text-gray-500 font-mono">ESC</kbd>
+        </div>
+        <div className="px-4 py-2 max-h-[60vh] overflow-y-auto">
+          {searching && query && (
+            <div className="flex items-center justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-emerald-600 mr-2" /><span className="text-sm text-gray-500">Searching...</span></div>
+          )}
+          {!searching && query && results.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Inbox className="h-10 w-10 text-gray-300 mb-3" />
+              <p className="font-medium text-gray-500">No results found</p>
+              <p className="text-sm text-gray-400 mt-1">Try a different search term</p>
+            </div>
+          )}
+          {!searching && results.length > 0 && groups.map(([groupKey, groupItems]) => (
+            <div key={groupKey} className="mb-4 last:mb-0">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{typeLabel[groupKey]}s</p>
+              {groupItems.map(item => {
+                globalIdx++;
+                const isSelected = globalIdx === selectedIdx;
+                const pageMap: Record<string, Page> = { customer: 'customers', connection: 'connections', payment: 'billing', invoice: 'billing', vendor: 'vendors', employee: 'employees' };
+                return (
+                  <button key={item.id} onClick={() => { onNavigate(pageMap[item.type] || 'customers'); onOpenChange(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${isSelected ? 'bg-emerald-50 ring-1 ring-emerald-200' : 'hover:bg-gray-50'} cursor-pointer`}>
+                    <div className="flex-shrink-0">{typeIcon[item.type]}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.title}</p>
+                      <p className="text-xs text-gray-500 truncate">{item.subtitle}</p>
+                    </div>
+                    <Badge className={`text-[10px] px-1.5 py-0 flex-shrink-0 ${typeBadgeColor[item.type]}`}>{typeLabel[item.type]}</Badge>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {!searching && !query && (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Search className="h-10 w-10 text-gray-300 mb-3" />
+              <p className="font-medium text-gray-500">Type to search</p>
+              <p className="text-sm text-gray-400 mt-1">Search across all your business data</p>
+            </div>
+          )}
+        </div>
+        {results.length > 0 && (
+          <div className="border-t px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+            <span>{results.length} result{results.length !== 1 ? 's' : ''} found</span>
+            <div className="flex items-center gap-2">
+              <kbd className="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-mono">↑↓</kbd> navigate
+              <kbd className="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-mono">↵</kbd> open
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ==================== ADMIN DEEP DIVE DIALOG ====================
+function AdminDeepDiveDialog({ businessId, businessName, open, onOpenChange }: { businessId: string; businessName: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [data, setData] = useState<AdminBusinessDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState('customers');
+
+  useEffect(() => {
+    if (open && businessId) {
+      (async () => {
+        setLoading(true);
+        setTab('customers');
+        try { const d = await api<AdminBusinessDetail>(`/api/admin/businesses/${businessId}/data`); setData(d); } catch {} finally { setLoading(false); }
+      })();
+    }
+    if (!open) setData(null);
+  }, [open, businessId]);
+
+  if (!open) return null;
+
+  const statsCards = data ? [
+    { label: 'Customers', value: data.stats.totalCustomers, icon: <Users className="h-4 w-4" />, color: 'text-blue-600 bg-blue-50' },
+    { label: 'Active Connections', value: data.stats.activeConnections, icon: <Wifi className="h-4 w-4" />, color: 'text-emerald-600 bg-emerald-50' },
+    { label: 'Monthly Revenue', value: formatCurrency(data.stats.monthlyRevenue), icon: <DollarSign className="h-4 w-4" />, color: 'text-amber-600 bg-amber-50' },
+    { label: 'Collected This Month', value: formatCurrency(data.stats.collectedThisMonth), icon: <TrendingUp className="h-4 w-4" />, color: 'text-violet-600 bg-violet-50' },
+    { label: 'Expenses This Month', value: formatCurrency(data.stats.expensesThisMonth), icon: <CreditCard className="h-4 w-4" />, color: 'text-red-600 bg-red-50' },
+    { label: 'Unpaid Invoices', value: data.stats.unpaidInvoices, icon: <AlertTriangle className="h-4 w-4" />, color: data.stats.unpaidInvoices > 0 ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50' },
+  ] : [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 animate-spin text-emerald-600" /></div>
+        ) : data ? (
+          <div className="space-y-6">
+            {/* Header */}
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700"><Building2 className="h-5 w-5" /></div>
+                <div>
+                  <DialogHeader>
+                    <DialogTitle className="text-xl">{data.business.name}</DialogTitle>
+                    <DialogDescription className="text-gray-500">{data.business.email} {data.business.phone ? `| ${data.business.phone}` : ''}</DialogDescription>
+                  </DialogHeader>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Badge className={data.business.plan === 'trial' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}>{data.business.plan === 'trial' ? 'Free Trial' : data.business.plan}</Badge>
+                <Badge className={data.business.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>{data.business.isActive ? 'Active' : 'Disabled'}</Badge>
+                <Badge variant="outline">Joined {formatDate(data.business.createdAt)}</Badge>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {statsCards.map((s, i) => (
+                <div key={i} className="rounded-xl border bg-white p-3">
+                  <div className={`p-1.5 rounded-lg ${s.color} w-fit`}>{s.icon}</div>
+                  <p className="mt-2 text-lg font-bold text-gray-900">{s.value}</p>
+                  <p className="text-xs text-gray-500">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            <Separator />
+
+            {/* Tabs */}
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList className="flex flex-wrap h-auto gap-1">
+                <TabsTrigger value="customers">Customers ({data.customers.length})</TabsTrigger>
+                <TabsTrigger value="connections">Connections ({data.connections.length})</TabsTrigger>
+                <TabsTrigger value="payments">Payments ({data.payments.length})</TabsTrigger>
+                <TabsTrigger value="invoices">Invoices ({data.invoices.length})</TabsTrigger>
+                <TabsTrigger value="expenses">Expenses ({data.expenses.length})</TabsTrigger>
+                <TabsTrigger value="employees">Employees ({data.employees.length})</TabsTrigger>
+                <TabsTrigger value="vendors">Vendors ({data.vendors.length})</TabsTrigger>
+                <TabsTrigger value="notifications">Notifications ({data.notifications.length})</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="customers" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead>Joined</TableHead></TableRow></TableHeader><TableBody>
+                    {data.customers.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={Users} title="No customers yet" description="This business has no customers" /></TableCell></TableRow> : data.customers.map((c, i) => (
+                      <TableRow key={c.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{c.name[0]}</div>{c.name}</div></TableCell><TableCell>{c.phone}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status] || ''}>{c.status}</Badge></TableCell><TableCell className="text-gray-500 text-sm">{formatDate(c.createdAt)}</TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="connections" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Type</TableHead><TableHead>Package</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>
+                    {data.connections.length === 0 ? <TableRow><TableCell colSpan={5}><EmptyState icon={Wifi} title="No connections yet" description="This business has no connections" /></TableCell></TableRow> : data.connections.map((c, i) => (
+                      <TableRow key={c.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{c.customer?.name || 'N/A'}</TableCell><TableCell><Badge className={PKG_TYPE_COLOR[c.packageType]}><span className="capitalize">{c.packageType}</span></Badge></TableCell><TableCell>{c.packageName || '-'}</TableCell><TableCell className="font-medium">{formatCurrency(c.monthlyFee)}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status]}>{c.status}</Badge></TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="payments" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
+                    {data.payments.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={DollarSign} title="No payments yet" description="No payments recorded" /></TableCell></TableRow> : data.payments.map((p, i) => (
+                      <TableRow key={p.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{p.customer?.name || 'N/A'}</TableCell><TableCell className="font-medium text-emerald-600">{formatCurrency(p.amount)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{p.method || 'N/A'}</Badge></TableCell><TableCell className="text-gray-500">{formatDateTime(p.createdAt)}</TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="invoices" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Package</TableHead><TableHead>Month</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>
+                    {data.invoices.length === 0 ? <TableRow><TableCell colSpan={5}><EmptyState icon={FileText} title="No invoices yet" description="No invoices generated" /></TableCell></TableRow> : data.invoices.map((inv, i) => (
+                      <TableRow key={inv.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{inv.connection?.customer?.name || 'N/A'}</TableCell><TableCell className="capitalize">{inv.connection?.packageType || '-'}</TableCell><TableCell>{inv.month}</TableCell><TableCell className="font-medium">{formatCurrency(inv.amount)}</TableCell><TableCell><Badge className={STATUS_COLOR[inv.status]}>{inv.status}</Badge></TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="expenses" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
+                    {data.expenses.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={CreditCard} title="No expenses yet" description="No expenses recorded" /></TableCell></TableRow> : data.expenses.map((e, i) => (
+                      <TableRow key={e.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="capitalize">{e.category}</TableCell><TableCell className="max-w-[200px] truncate">{e.description || '-'}</TableCell><TableCell className="font-medium text-red-600">{formatCurrency(e.amount)}</TableCell><TableCell className="text-gray-500">{formatDate(e.date)}</TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="employees" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Role</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>
+                    {data.employees.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={UserCog} title="No employees yet" description="This business has no employees" /></TableCell></TableRow> : data.employees.map((emp, i) => (
+                      <TableRow key={emp.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{emp.name[0]}</div>{emp.name}</div></TableCell><TableCell className="capitalize">{emp.role}</TableCell><TableCell>{emp.phone}</TableCell><TableCell><Badge className={STATUS_COLOR[emp.status]}>{emp.status}</Badge></TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="vendors" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Service</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>
+                    {data.vendors.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={Building2} title="No vendors yet" description="This business has no vendors" /></TableCell></TableRow> : data.vendors.map((v, i) => (
+                      <TableRow key={v.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{v.name}</TableCell><TableCell>{v.service || '-'}</TableCell><TableCell>{v.phone}</TableCell><TableCell><Badge className={STATUS_COLOR[v.status]}>{v.status}</Badge></TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="notifications" className="mt-4">
+                <Card className="border-0 shadow-sm"><CardContent className="p-0">
+                  <Table><TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Message</TableHead><TableHead>Type</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
+                    {data.notifications.length === 0 ? <TableRow><TableCell colSpan={4}><EmptyState icon={Bell} title="No notifications" description="This business has no notifications" /></TableCell></TableRow> : data.notifications.map((n, i) => (
+                      <TableRow key={n.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{n.title}</TableCell><TableCell className="max-w-[250px] truncate text-gray-500">{n.message}</TableCell><TableCell className="capitalize">{n.type}</TableCell><TableCell className="text-gray-500">{formatDateTime(n.createdAt)}</TableCell></TableRow>
+                    ))}
+                  </TableBody></Table>
+                </CardContent></Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ==================== MAIN APP ====================
 function ISPApp({ business, onLogout }: { business: Business; onLogout: () => void }) {
   const [page, setPage] = useState<Page>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const fetchNotifCount = useCallback(async () => {
     try { const r = await api<{ unreadCount: number }>('/api/notifications?unread=true&limit=1'); setNotifCount(r.unreadCount); } catch {}
@@ -146,6 +513,15 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
   }, []);
 
   useEffect(() => { fetchNotifCount(); fetchDashboard(); }, [fetchNotifCount, fetchDashboard]);
+
+  // Global keyboard shortcut for search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const NAV_ITEMS: { id: Page; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-5 w-5" /> },
@@ -190,7 +566,7 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${page === item.id ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}>
               {item.icon}<span>{item.label}</span>
               {item.id === 'notifications' && notifCount > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-xs rounded-full h-5 min-w-5 flex items-center justify-center px-1.5">{notifCount}</span>
+                <span className="ml-auto bg-red-500 text-white text-xs rounded-full h-5 min-w-5 flex items-center justify-center px-1.5 animate-pulse">{notifCount}</span>
               )}
             </button>
           ))}
@@ -223,9 +599,15 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
                 <Clock className="h-3 w-3 mr-1" />Trial: {trialDaysLeft}d
               </Badge>
             )}
+            <TooltipProvider><Tooltip><TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative" onClick={() => setSearchOpen(true)}>
+                <Search className="h-5 w-5" />
+                <kbd className="hidden sm:inline-flex absolute -bottom-1 -right-1 items-center gap-0.5 rounded border border-gray-300 bg-gray-100 px-1 py-0 text-[8px] font-mono text-gray-400">⌘K</kbd>
+              </Button>
+            </TooltipTrigger><TooltipContent>Search (Ctrl+K)</TooltipContent></Tooltip></TooltipProvider>
             <Button variant="ghost" size="icon" className="relative" onClick={() => setPage('notifications')}>
               <Bell className="h-5 w-5" />
-              {notifCount > 0 && <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 min-w-4 flex items-center justify-center">{notifCount}</span>}
+              {notifCount > 0 && <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 min-w-4 flex items-center justify-center animate-pulse">{notifCount}</span>}
             </Button>
           </div>
         </header>
@@ -242,13 +624,24 @@ function ISPApp({ business, onLogout }: { business: Business; onLogout: () => vo
           {page === 'admin' && business.isPlatformAdmin && <AdminPage />}
         </div>
       </main>
+
+      {/* Global Search */}
+      <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} onNavigate={setPage} />
     </div>
   );
 }
 
 // ==================== DASHBOARD ====================
 function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefresh: () => void }) {
-  if (!data) return <div className="flex items-center justify-center py-20"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div>;
+  if (!data) return (
+    <div className="space-y-6">
+      <SkeletonCards count={6} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 border-0 shadow-sm"><CardContent className="h-72 flex items-center justify-center"><div className="h-full w-full bg-gray-200 rounded animate-pulse" /></CardContent></Card>
+        <Card className="border-0 shadow-sm"><CardContent className="h-56 flex items-center justify-center"><div className="h-full w-full bg-gray-200 rounded animate-pulse" /></CardContent></Card>
+      </div>
+    </div>
+  );
 
   const stats = [
     { label: 'Total Customers', value: data.totalCustomers, icon: <Users className="h-5 w-5" />, color: 'text-blue-600 bg-blue-50', change: '+12%' },
@@ -342,10 +735,10 @@ function DashboardPage({ data, onRefresh }: { data: DashboardData | null; onRefr
         <CardContent>
           {data.recentPayments.length > 0 ? (
             <Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
-            <TableBody>{data.recentPayments.map(p => (
-              <TableRow key={p.id}><TableCell className="font-medium">{p.customer?.name || 'N/A'}</TableCell><TableCell>{formatCurrency(p.amount)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{p.method || 'N/A'}</Badge></TableCell><TableCell className="text-gray-500">{formatDateTime(p.createdAt)}</TableCell></TableRow>
+            <TableBody>{data.recentPayments.map((p, i) => (
+              <TableRow key={p.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{p.customer?.name || 'N/A'}</TableCell><TableCell>{formatCurrency(p.amount)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{p.method || 'N/A'}</Badge></TableCell><TableCell className="text-gray-500">{formatDateTime(p.createdAt)}</TableCell></TableRow>
             ))}</TableBody></Table>
-          ) : <p className="text-center text-gray-400 py-8">No payments recorded yet</p>}
+          ) : <EmptyState icon={DollarSign} title="No payments recorded yet" description="Payments will appear here when collected" />}
         </CardContent>
       </Card>
     </div>
@@ -447,16 +840,18 @@ function CustomersPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Customers</h2><p className="text-sm text-gray-500">{total} total customers</p></div><Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Customer</Button></div>
       <SearchBar value={search} onChange={setSearch} placeholder="Search by name or phone..." filterValue={filter} onFilterChange={setFilter} filterOptions={statusOpts} filterLabel="All Status" />
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead className="hidden sm:table-cell">Phone</TableHead><TableHead className="hidden md:table-cell">Address</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={5} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead className="hidden sm:table-cell">Phone</TableHead><TableHead className="hidden md:table-cell">Address</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-          {items.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-400">No customers found</TableCell></TableRow> : items.map(c => (
-            <TableRow key={c.id}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{c.name[0]}</div>{c.name}</div></TableCell><TableCell className="hidden sm:table-cell">{c.phone}</TableCell><TableCell className="hidden md:table-cell text-gray-500 max-w-[200px] truncate">{c.address || '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status] || ''}>{c.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => viewCustomer(c)}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(c.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {items.length === 0 ? <TableRow><TableCell colSpan={5}><EmptyState icon={Users} title="No customers yet" description="Add your first customer to get started!" /></TableCell></TableRow> : items.map((c, i) => (
+            <TableRow key={c.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{c.name[0]}</div>{c.name}</div></TableCell><TableCell className="hidden sm:table-cell">{c.phone}</TableCell><TableCell className="hidden md:table-cell text-gray-500 max-w-[200px] truncate">{c.address || '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status] || ''}>{c.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => viewCustomer(c)}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(c.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
       {/* Create/Edit Dialog */}
-      <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Edit Customer' : 'Add Customer'}</DialogTitle><DialogDescription>{editing ? 'Update customer information' : 'Add a new customer to your ISP business'}</DialogDescription></DialogHeader>
+      <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Customer' : 'Add Customer'}</DialogTitle><DialogDescription>{editing ? 'Update customer information' : 'Add a new customer to your ISP business'}</DialogDescription></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div>
@@ -470,14 +865,14 @@ function CustomersPage() {
         </form>
       </DialogContent></Dialog>
       {/* View Dialog */}
-      <Dialog open={!!viewing} onOpenChange={() => setViewing(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Customer Details</DialogTitle></DialogHeader>
+      <Dialog open={!!viewing} onOpenChange={o => !o && setViewing(null)}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Customer Details</DialogTitle></DialogHeader>
         {viewing && <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-gray-500">Name</p><p className="font-medium">{viewing.name}</p></div><div><p className="text-xs text-gray-500">Phone</p><p className="font-medium">{viewing.phone}</p></div><div><p className="text-xs text-gray-500">Email</p><p className="font-medium">{viewing.email || '-'}</p></div><div><p className="text-xs text-gray-500">CNIC</p><p className="font-medium">{viewing.cnic || '-'}</p></div><div><p className="text-xs text-gray-500">Address</p><p className="font-medium">{viewing.address || '-'}</p></div><div><p className="text-xs text-gray-500">Status</p><Badge className={STATUS_COLOR[viewing.status]}>{viewing.status}</Badge></div></div>
           <Separator />
           <div><h4 className="font-semibold mb-2">Connections ({connections.length})</h4>
-            {connections.length > 0 ? <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Package</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{connections.map(c => <TableRow key={c.id}><TableCell><Badge className={PKG_TYPE_COLOR[c.packageType]}>{c.packageType}</Badge></TableCell><TableCell>{c.packageName || '-'}</TableCell><TableCell>{formatCurrency(c.monthlyFee)}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status]}>{c.status}</Badge></TableCell></TableRow>)}</TableBody></Table> : <p className="text-gray-400 text-sm">No connections</p>}</div>
+            {connections.length > 0 ? <Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Package</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{connections.map((c, idx) => <TableRow key={c.id} className={idx % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell><Badge className={PKG_TYPE_COLOR[c.packageType]}>{c.packageType}</Badge></TableCell><TableCell>{c.packageName || '-'}</TableCell><TableCell>{formatCurrency(c.monthlyFee)}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status]}>{c.status}</Badge></TableCell></TableRow>)}</TableBody></Table> : <p className="text-gray-400 text-sm">No connections</p>}</div>
           <div><h4 className="font-semibold mb-2">Payment History ({payments.length})</h4>
-            {payments.length > 0 ? <Table><TableHeader><TableRow><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{payments.map(p => <TableRow key={p.id}><TableCell>{formatCurrency(p.amount)}</TableCell><TableCell className="capitalize">{p.method || '-'}</TableCell><TableCell>{formatDateTime(p.createdAt)}</TableCell></TableRow>)}</TableBody></Table> : <p className="text-gray-400 text-sm">No payments</p>}</div>
+            {payments.length > 0 ? <Table><TableHeader><TableRow><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{payments.map((p, idx) => <TableRow key={p.id} className={idx % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell>{formatCurrency(p.amount)}</TableCell><TableCell className="capitalize">{p.method || '-'}</TableCell><TableCell>{formatDateTime(p.createdAt)}</TableCell></TableRow>)}</TableBody></Table> : <p className="text-gray-400 text-sm">No payments</p>}</div>
         </div>}
       </DialogContent></Dialog>
     </div>
@@ -512,15 +907,17 @@ function ConnectionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Connections</h2><p className="text-sm text-gray-500">{total} total connections</p></div><Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />New Connection</Button></div>
       <SearchBar value={search} onChange={setSearch} placeholder="Search by customer or package..." filterValue={filter} onFilterChange={setFilter} filterOptions={[...typeOpts, ...statusOpts]} filterLabel="All Types" />
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Type</TableHead><TableHead className="hidden sm:table-cell">Package</TableHead><TableHead className="hidden md:table-cell">Speed</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead><TableHead className="hidden lg:table-cell">Expires</TableHead><TableCell className="text-right">Actions</TableCell></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={8} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Type</TableHead><TableHead className="hidden sm:table-cell">Package</TableHead><TableHead className="hidden md:table-cell">Speed</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead><TableHead className="hidden lg:table-cell">Expires</TableHead><TableCell className="text-right">Actions</TableCell></TableRow></TableHeader><TableBody>
-          {items.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-400">No connections found</TableCell></TableRow> : items.map(c => (
-            <TableRow key={c.id}><TableCell className="font-medium">{c.customer?.name || 'N/A'}</TableCell><TableCell><Badge className={PKG_TYPE_COLOR[c.packageType]}>{PKG_TYPE_ICON[c.packageType]}<span className="ml-1 capitalize">{c.packageType}</span></Badge></TableCell><TableCell className="hidden sm:table-cell">{c.packageName || '-'}</TableCell><TableCell className="hidden md:table-cell">{c.speed || '-'}</TableCell><TableCell className="font-medium">{formatCurrency(c.monthlyFee)}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status]}>{c.status}</Badge></TableCell><TableCell className="hidden lg:table-cell text-gray-500">{formatDate(c.expiresAt || '')}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(c.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {items.length === 0 ? <TableRow><TableCell colSpan={8}><EmptyState icon={Wifi} title="No connections found" description="Create your first connection for a customer" /></TableCell></TableRow> : items.map((c, i) => (
+            <TableRow key={c.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{c.customer?.name || 'N/A'}</TableCell><TableCell><Badge className={PKG_TYPE_COLOR[c.packageType]}>{PKG_TYPE_ICON[c.packageType]}<span className="ml-1 capitalize">{c.packageType}</span></Badge></TableCell><TableCell className="hidden sm:table-cell">{c.packageName || '-'}</TableCell><TableCell className="hidden md:table-cell">{c.speed || '-'}</TableCell><TableCell className="font-medium">{formatCurrency(c.monthlyFee)}</TableCell><TableCell><Badge className={STATUS_COLOR[c.status]}>{c.status}</Badge></TableCell><TableCell className="hidden lg:table-cell text-gray-500">{formatDate(c.expiresAt || '')}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(c.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
-      <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Edit Connection' : 'New Connection'}</DialogTitle><DialogDescription>{editing ? 'Update connection details' : 'Create a new connection for a customer'}</DialogDescription></DialogHeader>
+      <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Connection' : 'New Connection'}</DialogTitle><DialogDescription>{editing ? 'Update connection details' : 'Create a new connection for a customer'}</DialogDescription></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div><Label>Customer *</Label><Select value={form.customerId} onValueChange={v => setForm({ ...form, customerId: v })} disabled={!!editing}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.phone}</SelectItem>)}</SelectContent></Select></div>
           <div className="grid grid-cols-2 gap-3">
@@ -601,27 +998,31 @@ function BillingPage() {
       <div className="flex items-center justify-between">
         <div><h2 className="text-xl font-bold">Billing & Dues</h2><p className="text-sm text-gray-500">Manage invoices and collect payments</p></div>
         <div className="flex gap-2">
-          <Dialog><DialogTrigger asChild><Button variant="outline"><FileText className="h-4 w-4 mr-2" />Generate Invoices</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Generate Monthly Invoices</DialogTitle><DialogDescription>Create invoices for all active connections</DialogDescription></DialogHeader><div className="space-y-4"><div><Label>Month</Label><Input type="month" value={genMonth} onChange={e => setGenMonth(e.target.value)} /></div><DialogFooter><Button onClick={generateInvoices} disabled={generating} className="bg-emerald-600 hover:bg-emerald-700">{generating ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}Generate</Button></DialogFooter></div></DialogContent></Dialog>
+          <Dialog><DialogTrigger asChild><Button variant="outline"><FileText className="h-4 w-4 mr-2" />Generate Invoices</Button></DialogTrigger><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Generate Monthly Invoices</DialogTitle><DialogDescription>Create invoices for all active connections</DialogDescription></DialogHeader><div className="space-y-4"><div><Label>Month</Label><Input type="month" value={genMonth} onChange={e => setGenMonth(e.target.value)} /></div><DialogFooter><Button onClick={generateInvoices} disabled={generating} className="bg-emerald-600 hover:bg-emerald-700">{generating ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}Generate</Button></DialogFooter></div></DialogContent></Dialog>
           <Button onClick={openPayDialog} className="bg-emerald-600 hover:bg-emerald-700"><DollarSign className="h-4 w-4 mr-2" />Collect Payment</Button>
         </div>
       </div>
       <Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="invoices">Invoices ({invTotal})</TabsTrigger><TabsTrigger value="payments">Payments ({payTotal})</TabsTrigger></TabsList>
         <TabsContent value="invoices" className="mt-4">
           <div className="mb-4"><Select value={invFilter || ''} onValueChange={v => { setInvFilter(v === '__all__' ? '' : v); }}><SelectTrigger className="w-44"><Filter className="h-4 w-4 mr-2" />{invFilter ? invStatusOpts.find(o => o.value === invFilter)?.label : 'All Status'}</SelectTrigger><SelectContent><SelectItem value="__all__">All Status</SelectItem>{invStatusOpts.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
-          {invLoading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+          {invLoading ? (
+            <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Package</TableHead><TableHead>Month</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6} />)}</TableBody></Table></CardContent></Card>
+          ) : (
             <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Package</TableHead><TableHead>Month</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-              {invoices.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400">No invoices found</TableCell></TableRow> : invoices.map(inv => (
-                <TableRow key={inv.id}><TableCell className="font-medium">{inv.connection?.customer?.name || 'N/A'}</TableCell><TableCell className="capitalize">{inv.connection?.packageType || '-'}</TableCell><TableCell>{inv.month}</TableCell><TableCell className="font-medium">{formatCurrency(inv.amount)}</TableCell><TableCell><Badge className={STATUS_COLOR[inv.status]}>{inv.status}</Badge></TableCell><TableCell className="text-right">{inv.status !== 'paid' && <Button size="sm" variant="outline" onClick={() => markPaid(inv)}><Check className="h-3 w-3 mr-1" />Mark Paid</Button>}{inv.status === 'paid' && <span className="text-xs text-gray-400">{formatDate(inv.paidAt || '')}</span>}</TableCell></TableRow>
+              {invoices.length === 0 ? <TableRow><TableCell colSpan={6}><EmptyState icon={FileText} title="No invoices found" description="Generate invoices for active connections" /></TableCell></TableRow> : invoices.map((inv, i) => (
+                <TableRow key={inv.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{inv.connection?.customer?.name || 'N/A'}</TableCell><TableCell className="capitalize">{inv.connection?.packageType || '-'}</TableCell><TableCell>{inv.month}</TableCell><TableCell className="font-medium">{formatCurrency(inv.amount)}</TableCell><TableCell><Badge className={STATUS_COLOR[inv.status]}>{inv.status}</Badge></TableCell><TableCell className="text-right">{inv.status !== 'paid' && <Button size="sm" variant="outline" onClick={() => markPaid(inv)}><Check className="h-3 w-3 mr-1" />Mark Paid</Button>}{inv.status === 'paid' && <span className="text-xs text-gray-400">{formatDate(inv.paidAt || '')}</span>}</TableCell></TableRow>
               ))}
             </TableBody></Table></CardContent></Card>
           )}
           <Pagination page={invPage} total={invTotal} limit={20} onPageChange={setInvPage} />
         </TabsContent>
         <TabsContent value="payments" className="mt-4">
-          {payLoading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+          {payLoading ? (
+            <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Collected By</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={5} />)}</TableBody></Table></CardContent></Card>
+          ) : (
             <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Collected By</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>
-              {payments.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-400">No payments yet</TableCell></TableRow> : payments.map(p => (
-                <TableRow key={p.id}><TableCell className="font-medium">{p.customer?.name || 'N/A'}</TableCell><TableCell className="font-medium text-emerald-600">{formatCurrency(p.amount)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{p.method || '-'}</Badge></TableCell><TableCell>{p.collectedBy || '-'}</TableCell><TableCell className="text-gray-500">{formatDateTime(p.createdAt)}</TableCell></TableRow>
+              {payments.length === 0 ? <TableRow><TableCell colSpan={5}><EmptyState icon={DollarSign} title="No payments yet" description="Record payments from customers" /></TableCell></TableRow> : payments.map((p, i) => (
+                <TableRow key={p.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{p.customer?.name || 'N/A'}</TableCell><TableCell className="font-medium text-emerald-600">{formatCurrency(p.amount)}</TableCell><TableCell><Badge variant="outline" className="capitalize">{p.method || '-'}</Badge></TableCell><TableCell>{p.collectedBy || '-'}</TableCell><TableCell className="text-gray-500">{formatDateTime(p.createdAt)}</TableCell></TableRow>
               ))}
             </TableBody></Table></CardContent></Card>
           )}
@@ -629,7 +1030,7 @@ function BillingPage() {
         </TabsContent>
       </Tabs>
       {/* Collect Payment Dialog */}
-      <Dialog open={payOpen} onOpenChange={setPayOpen}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Collect Payment</DialogTitle><DialogDescription>Record a payment from a customer</DialogDescription></DialogHeader>
+      <Dialog open={payOpen} onOpenChange={setPayOpen}><DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Collect Payment</DialogTitle><DialogDescription>Record a payment from a customer</DialogDescription></DialogHeader>
         <form onSubmit={handlePay} className="space-y-3">
           <div><Label>Customer *</Label><Select value={payForm.customerId} onValueChange={v => setPayForm({ ...payForm, customerId: v, connectionId: '', invoiceId: '' })}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.phone}</SelectItem>)}</SelectContent></Select></div>
           <div><Label>Connection</Label><Select value={payForm.connectionId} onValueChange={v => setPayForm({ ...payForm, connectionId: v, invoiceId: '' })} disabled={!payForm.customerId}><SelectTrigger><SelectValue placeholder="Select connection" /></SelectTrigger><SelectContent>{filteredConnections.map(c => <SelectItem key={c.id} value={c.id}><span className="capitalize">{c.packageType}</span> - {c.packageName || '-'} ({formatCurrency(c.monthlyFee)})</SelectItem>)}</SelectContent></Select></div>
@@ -665,15 +1066,17 @@ function VendorsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Vendors</h2><p className="text-sm text-gray-500">{total} vendors & suppliers</p></div><Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Vendor</Button></div>
       <SearchBar value={search} onChange={setSearch} placeholder="Search vendors..." />
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead className="hidden sm:table-cell">Service</TableHead><TableHead className="hidden md:table-cell">Email</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead className="hidden sm:table-cell">Service</TableHead><TableHead className="hidden md:table-cell">Email</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-          {items.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400">No vendors found</TableCell></TableRow> : items.map(v => (
-            <TableRow key={v.id}><TableCell className="font-medium">{v.name}</TableCell><TableCell>{v.phone}</TableCell><TableCell className="hidden sm:table-cell">{v.service || '-'}</TableCell><TableCell className="hidden md:table-cell text-gray-500">{v.email || '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[v.status]}>{v.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(v)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(v.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {items.length === 0 ? <TableRow><TableCell colSpan={6}><EmptyState icon={Building2} title="No vendors found" description="Add your first vendor or supplier" /></TableCell></TableRow> : items.map((v, i) => (
+            <TableRow key={v.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium">{v.name}</TableCell><TableCell>{v.phone}</TableCell><TableCell className="hidden sm:table-cell">{v.service || '-'}</TableCell><TableCell className="hidden md:table-cell text-gray-500">{v.email || '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[v.status]}>{v.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(v)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(v.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
-      <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Edit Vendor' : 'Add Vendor'}</DialogTitle></DialogHeader>
+      <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Vendor' : 'Add Vendor'}</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3"><div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div><div><Label>Phone *</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} required /></div><div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div><div><Label>Service</Label><Input value={form.service} onChange={e => setForm({ ...form, service: e.target.value })} /></div></div>
           <div><Label>Address</Label><Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
@@ -706,15 +1109,17 @@ function EmployeesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Employees</h2><p className="text-sm text-gray-500">{total} team members</p></div><Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Employee</Button></div>
       <SearchBar value={search} onChange={setSearch} placeholder="Search employees..." filterValue={filter} onFilterChange={setFilter} filterOptions={[...roleOpts, ...statusOpts]} filterLabel="All Roles" />
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Role</TableHead><TableHead className="hidden sm:table-cell">Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Role</TableHead><TableHead className="hidden sm:table-cell">Salary</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-          {items.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400">No employees found</TableCell></TableRow> : items.map(emp => (
-            <TableRow key={emp.id}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{emp.name[0]}</div>{emp.name}</div></TableCell><TableCell>{emp.phone}</TableCell><TableCell><Badge className={roleColor[emp.role] || ''}>{emp.role}</Badge></TableCell><TableCell className="hidden sm:table-cell">{emp.salary ? formatCurrency(emp.salary) : '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[emp.status]}>{emp.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(emp)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(emp.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {items.length === 0 ? <TableRow><TableCell colSpan={6}><EmptyState icon={UserCog} title="No employees found" description="Add your first team member" /></TableCell></TableRow> : items.map((emp, i) => (
+            <TableRow key={emp.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell className="font-medium"><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">{emp.name[0]}</div>{emp.name}</div></TableCell><TableCell>{emp.phone}</TableCell><TableCell><Badge className={roleColor[emp.role] || ''}>{emp.role}</Badge></TableCell><TableCell className="hidden sm:table-cell">{emp.salary ? formatCurrency(emp.salary) : '-'}</TableCell><TableCell><Badge className={STATUS_COLOR[emp.status]}>{emp.status}</Badge></TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(emp)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(emp.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
-      <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Edit Employee' : 'Add Employee'}</DialogTitle></DialogHeader>
+      <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Employee' : 'Add Employee'}</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3"><div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div><div><Label>Phone *</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} required /></div><div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div><div><Label>Salary (PKR)</Label><Input type="number" value={form.salary} onChange={e => setForm({ ...form, salary: e.target.value })} /></div></div>
           <div className="grid grid-cols-2 gap-3">
@@ -760,15 +1165,17 @@ function ExpensesPage() {
         <Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Expense</Button>
       </div>
       <SearchBar value={search} onChange={setSearch} placeholder="Search expenses..." filterValue={filter} onFilterChange={setFilter} filterOptions={catOpts} filterLabel="All Categories" />
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead><TableHead className="hidden sm:table-cell">Vendor/Employee</TableHead><TableHead className="hidden md:table-cell">Date</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead><TableHead className="hidden sm:table-cell">Vendor/Employee</TableHead><TableHead className="hidden md:table-cell">Date</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-          {items.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-400">No expenses recorded</TableCell></TableRow> : items.map(e => (
-            <TableRow key={e.id}><TableCell><Badge className={catColor[e.category] || ''}>{e.category}</Badge></TableCell><TableCell className="max-w-[200px] truncate">{e.description || '-'}</TableCell><TableCell className="font-medium text-red-600">{formatCurrency(e.amount)}</TableCell><TableCell className="hidden sm:table-cell">{e.vendor?.name || e.employee?.name || '-'}</TableCell><TableCell className="hidden md:table-cell text-gray-500">{formatDate(e.date)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(e)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(e.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {items.length === 0 ? <TableRow><TableCell colSpan={6}><EmptyState icon={CreditCard} title="No expenses recorded" description="Track your business expenses here" /></TableCell></TableRow> : items.map((e, i) => (
+            <TableRow key={e.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell><Badge className={catColor[e.category] || ''}>{e.category}</Badge></TableCell><TableCell className="max-w-[200px] truncate">{e.description || '-'}</TableCell><TableCell className="font-medium text-red-600">{formatCurrency(e.amount)}</TableCell><TableCell className="hidden sm:table-cell">{e.vendor?.name || e.employee?.name || '-'}</TableCell><TableCell className="hidden md:table-cell text-gray-500">{formatDate(e.date)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(e)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => remove(e.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
-      <Dialog open={open} onOpenChange={setOpen}><DialogContent><DialogHeader><DialogTitle>{editing ? 'Edit Expense' : 'Add Expense'}</DialogTitle></DialogHeader>
+      <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Expense' : 'Add Expense'}</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Category *</Label><Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{catOpts.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
@@ -810,13 +1217,15 @@ function NotificationsPage() {
       <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Notifications</h2><p className="text-sm text-gray-500">{notifs.filter(n => !n.isRead).length} unread</p></div>
         {notifs.some(n => !n.isRead) && <Button variant="outline" size="sm" onClick={markAllRead}><CheckCheck className="h-4 w-4 mr-2" />Mark All Read</Button>}
       </div>
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <div className="space-y-3">{[1,2,3,4].map(i => <Card key={i} className="border-0 shadow-sm"><CardContent className="py-4 px-4"><div className="flex items-center gap-3"><div className="h-8 w-8 bg-gray-200 rounded-lg animate-pulse" /><div className="flex-1 space-y-2"><div className="h-4 w-48 bg-gray-200 rounded animate-pulse" /><div className="h-3 w-72 bg-gray-100 rounded animate-pulse" /></div></div></CardContent></Card>)}</div>
+      ) : (
         <div className="space-y-2">
-          {notifs.length === 0 ? <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center text-gray-400">No notifications yet</CardContent></Card> : notifs.map(n => (
+          {notifs.length === 0 ? <Card className="border-0 shadow-sm"><CardContent className="py-12"><EmptyState icon={Bell} title="No notifications yet" description="Notifications will appear here" /></CardContent></Card> : notifs.map(n => (
             <Card key={n.id} className={`border-0 shadow-sm transition-all cursor-pointer hover:shadow-md ${!n.isRead ? 'border-l-4 border-l-emerald-500' : ''}`} onClick={() => !n.isRead && markRead(n.id)}>
               <CardContent className="py-3 px-4 flex items-start gap-3">
                 <div className={`p-2 rounded-lg ${typeColor[n.type] || typeColor.info} mt-0.5`}>{typeIcon[n.type] || typeIcon.info}</div>
-                <div className="flex-1 min-w-0"><div className="flex items-center gap-2"><p className={`text-sm ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>{!n.isRead && <div className="w-2 h-2 rounded-full bg-emerald-500" />}</div><p className="text-sm text-gray-500 mt-0.5">{n.message}</p></div>
+                <div className="flex-1 min-w-0"><div className="flex items-center gap-2"><p className={`text-sm ${!n.isRead ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>{!n.isRead && <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}</div><p className="text-sm text-gray-500 mt-0.5">{n.message}</p></div>
                 <p className="text-xs text-gray-400 flex-shrink-0">{formatDateTime(n.createdAt)}</p>
               </CardContent>
             </Card>
@@ -843,7 +1252,7 @@ function SettingsPage({ business }: { business: Business }) {
   return (
     <div className="space-y-6 max-w-2xl">
       <div><h2 className="text-xl font-bold">Settings</h2><p className="text-sm text-gray-500">Manage your business profile and preferences</p></div>
-      <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Business Profile</CardTitle><CardDescription>Update your business information</CardDescription></CardHeader><CardContent>
+      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow"><CardHeader><CardTitle className="text-base">Business Profile</CardTitle><CardDescription>Update your business information</CardDescription></CardHeader><CardContent>
         <form onSubmit={handleSave} className="space-y-4">
           <div><Label>Business Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
           <div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
@@ -851,14 +1260,14 @@ function SettingsPage({ business }: { business: Business }) {
           <Button type="submit" disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">{saving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}{saved ? <CheckCircle2 className="h-4 w-4 mr-2" /> : null}{saved ? 'Saved!' : 'Save Changes'}</Button>
         </form>
       </CardContent></Card>
-      <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Subscription</CardTitle></CardHeader><CardContent>
+      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow"><CardHeader><CardTitle className="text-base">Subscription</CardTitle></CardHeader><CardContent>
         <div className="flex items-center gap-3 mb-4">
           <Badge className={business.plan === 'trial' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}>{business.plan === 'trial' ? 'Free Trial' : business.plan}</Badge>
           {business.trialEndsAt && <span className="text-sm text-gray-500">Expires: {formatDate(business.trialEndsAt)}</span>}
         </div>
         <p className="text-sm text-gray-500">Contact Z ISP Solution support to upgrade your plan.</p>
       </CardContent></Card>
-      <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader><CardContent className="space-y-3">
+      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow"><CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader><CardContent className="space-y-3">
         <Button variant="outline" className="w-full justify-start" onClick={() => { if (confirm('Seed demo data? This will add sample customers, connections, and payments.')) { fetch('/api/dashboard').then(() => alert('Demo data would be seeded in production.')); } }}><ClipboardList className="h-4 w-4 mr-2" />Seed Demo Data</Button>
         <Button variant="outline" className="w-full justify-start text-red-600" onClick={() => { if (confirm('Are you sure you want to delete ALL data? This cannot be undone.')) { alert('Data deletion would run in production.'); } }}><Trash2 className="h-4 w-4 mr-2" />Delete All Data</Button>
       </CardContent></Card>
@@ -874,6 +1283,7 @@ function AdminPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [deepDiveBusiness, setDeepDiveBusiness] = useState<{ id: string; name: string } | null>(null);
 
   const fetchBusinesses = useCallback(async (p = page, s = search) => {
     setLoading(true);
@@ -908,7 +1318,7 @@ function AdminPage() {
   return (
     <div className="space-y-6">
       <div><h2 className="text-2xl font-bold">Platform Admin</h2><p className="text-sm text-gray-500">Manage all ISP businesses on the platform</p></div>
-      {stats && (
+      {stats ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {[
             { label: 'Total Businesses', value: stats.totalBusinesses, icon: <Building2 className="h-5 w-5" />, color: 'text-blue-600 bg-blue-50' },
@@ -917,10 +1327,20 @@ function AdminPage() {
             { label: 'Monthly Revenue', value: formatCurrency(stats.totalMonthlyRevenue), icon: <DollarSign className="h-5 w-5" />, color: 'text-amber-600 bg-amber-50' },
             { label: 'Total Collected', value: formatCurrency(stats.totalPaymentsCollected), icon: <TrendingUp className="h-5 w-5" />, color: 'text-cyan-600 bg-cyan-50' },
           ].map((s, i) => (
-            <Card key={i} className="border-0 shadow-sm"><CardContent className="p-4">
+            <Card key={i} className="border-0 shadow-sm hover:shadow-md transition-shadow"><CardContent className="p-4">
               <div className={`p-2 rounded-xl ${s.color} w-fit`}>{s.icon}</div>
               <p className="mt-2 text-xl font-bold text-gray-900">{s.value}</p>
               <p className="text-xs text-gray-500">{s.label}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[1,2,3,4,5].map(i => (
+            <Card key={i} className="border-0 shadow-sm"><CardContent className="p-4">
+              <div className="h-8 w-8 bg-gray-200 rounded-xl animate-pulse" />
+              <div className="mt-2 h-6 w-24 bg-gray-200 rounded animate-pulse" />
+              <div className="mt-1 h-3 w-32 bg-gray-100 rounded animate-pulse" />
             </CardContent></Card>
           ))}
         </div>
@@ -928,14 +1348,28 @@ function AdminPage() {
       <div className="flex items-center justify-between">
         <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><Input placeholder="Search businesses..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" /></div>
       </div>
-      {loading ? <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-emerald-600" /></div> : (
+      {loading ? (
+        <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Business</TableHead><TableHead>Plan</TableHead><TableHead className="hidden sm:table-cell">Customers</TableHead><TableHead className="hidden sm:table-cell">Connections</TableHead><TableHead>Status</TableHead><TableHead className="hidden md:table-cell">Joined</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{[1,2,3].map(i => <SkeletonRow key={i} cols={7} />)}</TableBody></Table></CardContent></Card>
+      ) : (
         <Card className="border-0 shadow-sm"><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Business</TableHead><TableHead>Plan</TableHead><TableHead className="hidden sm:table-cell">Customers</TableHead><TableHead className="hidden sm:table-cell">Connections</TableHead><TableHead>Status</TableHead><TableHead className="hidden md:table-cell">Joined</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
-          {businesses.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-400">No businesses signed up yet</TableCell></TableRow> : businesses.map(b => (
-            <TableRow key={b.id}><TableCell><div><p className="font-medium">{b.name}</p><p className="text-xs text-gray-500">{b.email}</p></div></TableCell><TableCell><Badge className={planColor[b.plan] || ''}>{b.plan}</Badge></TableCell><TableCell className="hidden sm:table-cell">{b._count.customers}</TableCell><TableCell className="hidden sm:table-cell">{b._count.connections}</TableCell><TableCell><Badge className={b.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>{b.isActive ? 'Active' : 'Disabled'}</Badge></TableCell><TableCell className="hidden md:table-cell text-gray-500 text-sm">{formatDate(b.createdAt)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1"><Select value={b.plan} onValueChange={v => changePlan(b.id, v)}><SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="trial">Trial</SelectItem><SelectItem value="basic">Basic</SelectItem><SelectItem value="pro">Pro</SelectItem><SelectItem value="enterprise">Enterprise</SelectItem></SelectContent></Select><Button variant="ghost" size="icon" className={`h-8 w-8 ${!b.isActive ? 'text-emerald-600' : 'text-amber-600'}`} onClick={() => toggleActive(b)} title={b.isActive ? 'Disable' : 'Activate'}>{b.isActive ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => deleteBusiness(b.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
+          {businesses.length === 0 ? <TableRow><TableCell colSpan={7}><EmptyState icon={Building2} title="No businesses signed up yet" description="New ISP businesses will appear here" /></TableCell></TableRow> : businesses.map((b, i) => (
+            <TableRow key={b.id} className={i % 2 === 1 ? 'bg-gray-50/50' : ''}><TableCell><div><p className="font-medium">{b.name}</p><p className="text-xs text-gray-500">{b.email}</p></div></TableCell><TableCell><Badge className={planColor[b.plan] || ''}>{b.plan}</Badge></TableCell><TableCell className="hidden sm:table-cell">{b._count.customers}</TableCell><TableCell className="hidden sm:table-cell">{b._count.connections}</TableCell><TableCell><Badge className={b.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>{b.isActive ? 'Active' : 'Disabled'}</Badge></TableCell><TableCell className="hidden md:table-cell text-gray-500 text-sm">{formatDate(b.createdAt)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-1">
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600" onClick={() => setDeepDiveBusiness({ id: b.id, name: b.name })} title="View Details"><Eye className="h-4 w-4" /></Button></TooltipTrigger><TooltipContent>View Details</TooltipContent></Tooltip></TooltipProvider>
+              <Select value={b.plan} onValueChange={v => changePlan(b.id, v)}><SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="trial">Trial</SelectItem><SelectItem value="basic">Basic</SelectItem><SelectItem value="pro">Pro</SelectItem><SelectItem value="enterprise">Enterprise</SelectItem></SelectContent></Select><Button variant="ghost" size="icon" className={`h-8 w-8 ${!b.isActive ? 'text-emerald-600' : 'text-amber-600'}`} onClick={() => toggleActive(b)} title={b.isActive ? 'Disable' : 'Activate'}>{b.isActive ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => deleteBusiness(b.id)}><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>
           ))}
         </TableBody></Table></CardContent></Card>
       )}
       <Pagination page={page} total={total} limit={20} onPageChange={setPage} />
+
+      {/* Admin Deep Dive Dialog */}
+      {deepDiveBusiness && (
+        <AdminDeepDiveDialog
+          businessId={deepDiveBusiness.id}
+          businessName={deepDiveBusiness.name}
+          open={!!deepDiveBusiness}
+          onOpenChange={(o) => !o && setDeepDiveBusiness(null)}
+        />
+      )}
     </div>
   );
 }
