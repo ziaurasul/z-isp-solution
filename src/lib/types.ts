@@ -10,6 +10,10 @@ export interface Business {
   isActive: boolean;
   isPlatformAdmin?: boolean;
   trialExpired?: boolean;
+  invoiceTemplate?: string;
+  invoiceColor?: string;
+  whatsappEnabled?: boolean;
+  whatsappToken?: string;
 }
 
 export interface AdminBusiness {
@@ -141,6 +145,18 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface Message {
+  id: string;
+  businessId: string;
+  customerId: string | null;
+  channel: string;
+  direction: string;
+  content: string;
+  status: string;
+  createdAt: string;
+  customer?: { id: string; name: string; phone: string };
+}
+
 export interface DashboardData {
   totalCustomers: number;
   activeConnections: number;
@@ -154,6 +170,23 @@ export interface DashboardData {
   connectionsByType: { internet: number; cable: number; iptv: number };
 }
 
+export interface ReportData {
+  revenueByMonth: { month: string; revenue: number; expenses: number; profit: number; collections: number }[];
+  customerGrowth: { month: string; count: number }[];
+  connectionsByType: { type: string; count: number; revenue: number }[];
+  connectionsByStatus: { status: string; count: number }[];
+  paymentMethods: { method: string; count: number; amount: number }[];
+  expenseCategories: { category: string; amount: number; count: number }[];
+  topCustomers: { name: string; phone: string; amount: number }[];
+  overdueInvoices: number;
+  unpaidInvoices: number;
+  overdueAmount: number;
+  unpaidAmount: number;
+  expiringConnections: number;
+  collectorPerf: { collector: string; count: number; amount: number }[];
+  dailyCollections: { date: string; amount: number }[];
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
@@ -161,4 +194,4 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
-export type Page = 'dashboard' | 'customers' | 'connections' | 'billing' | 'vendors' | 'employees' | 'expenses' | 'notifications' | 'settings' | 'admin';
+export type Page = 'dashboard' | 'customers' | 'connections' | 'billing' | 'vendors' | 'employees' | 'expenses' | 'notifications' | 'settings' | 'admin' | 'reports' | 'messages';

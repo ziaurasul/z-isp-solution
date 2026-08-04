@@ -19,6 +19,40 @@ export async function ensureTables() {
   if (process.env.NODE_ENV === 'production') {
     try {
       await db.$executeRawUnsafe(`SELECT 1 FROM "Business" LIMIT 1`);
+      // Check if new columns exist
+      try {
+        await db.$executeRawUnsafe(`SELECT "invoiceTemplate" FROM "Business" LIMIT 1`);
+      } catch {
+        // Add new columns to Business table
+        const alterStatements = [
+          `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "invoiceTemplate" TEXT NOT NULL DEFAULT 'modern'`,
+          `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "invoiceColor" TEXT NOT NULL DEFAULT '#10b981'`,
+          `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "whatsappEnabled" BOOLEAN NOT NULL DEFAULT false`,
+          `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "whatsappToken" TEXT`,
+        ];
+        for (const stmt of alterStatements) {
+          try { await db.$executeRawUnsafe(stmt); } catch {}
+        }
+      }
+      // Check if Message table exists
+      try {
+        await db.$executeRawUnsafe(`SELECT 1 FROM "Message" LIMIT 1`);
+      } catch {
+        await db.$executeRawUnsafe(`
+          CREATE TABLE IF NOT EXISTS "Message" (
+            "id" TEXT NOT NULL PRIMARY KEY,
+            "businessId" TEXT NOT NULL,
+            "customerId" TEXT,
+            "channel" TEXT NOT NULL DEFAULT 'inapp',
+            "direction" TEXT NOT NULL DEFAULT 'outgoing',
+            "content" TEXT NOT NULL,
+            "status" TEXT NOT NULL DEFAULT 'sent',
+            "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
+            FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL
+          )
+        `);
+      }
       globalForPrisma.tablesEnsured = true;
     } catch {
       // Tables don't exist yet — create them one by one
@@ -35,6 +69,10 @@ export async function ensureTables() {
           "trialEndsAt" TIMESTAMP,
           "isActive" BOOLEAN NOT NULL DEFAULT true,
           "isPlatformAdmin" BOOLEAN NOT NULL DEFAULT false,
+          "invoiceTemplate" TEXT NOT NULL DEFAULT 'modern',
+          "invoiceColor" TEXT NOT NULL DEFAULT '#10b981',
+          "whatsappEnabled" BOOLEAN NOT NULL DEFAULT false,
+          "whatsappToken" TEXT,
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
@@ -147,6 +185,18 @@ export async function ensureTables() {
           "isRead" BOOLEAN NOT NULL DEFAULT false,
           "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS "Message" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "businessId" TEXT NOT NULL,
+          "customerId" TEXT,
+          "channel" TEXT NOT NULL DEFAULT 'inapp',
+          "direction" TEXT NOT NULL DEFAULT 'outgoing',
+          "content" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'sent',
+          "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE,
+          FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL
         )`,
       ];
       for (const stmt of statements) {
