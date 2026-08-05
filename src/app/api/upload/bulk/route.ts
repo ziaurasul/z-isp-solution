@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBusinessFromRequest } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { ensureTables } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
-  await ensureTables();
-  const business = await getBusinessFromRequest();
+    const business = await getBusinessFromRequest();
   if (!business) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

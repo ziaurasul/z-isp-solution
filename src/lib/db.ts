@@ -13,17 +13,25 @@ export const db =
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
-// Auto-create tables on first request in production (fresh Neon DB)
+/**
+ * Ensures all required tables and columns exist in the database.
+ * In production (Vercel serverless), uses a lightweight check to avoid
+ * running expensive DDL on every cold start.
+ */
+let ensurePromise: Promise<void> | null = null;
+
 export async function ensureTables() {
   if (globalForPrisma.tablesEnsured) return;
-  if (process.env.NODE_ENV === 'production') {
+  // Deduplicate concurrent calls
+  if (ensurePromise) return ensurePromise;
+
+  ensurePromise = (async () => {
     try {
       await db.$executeRawUnsafe(`SELECT 1 FROM "Business" LIMIT 1`);
-      // Check if new columns exist
+      // Tables exist — check for new columns
       try {
         await db.$executeRawUnsafe(`SELECT "invoiceTemplate" FROM "Business" LIMIT 1`);
       } catch {
-        // Add new columns to Business table
         const alterStatements = [
           `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "invoiceTemplate" TEXT NOT NULL DEFAULT 'modern'`,
           `ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "invoiceColor" TEXT NOT NULL DEFAULT '#10b981'`,
@@ -55,7 +63,7 @@ export async function ensureTables() {
       }
       globalForPrisma.tablesEnsured = true;
     } catch {
-      // Tables don't exist yet — create them one by one
+      // Tables don't exist yet — create them all
       const statements = [
         `CREATE TABLE IF NOT EXISTS "Business" (
           "id" TEXT NOT NULL PRIMARY KEY,
@@ -200,9 +208,11 @@ export async function ensureTables() {
         )`,
       ];
       for (const stmt of statements) {
-        await db.$executeRawUnsafe(stmt);
+        try { await db.$executeRawUnsafe(stmt); } catch {}
       }
       globalForPrisma.tablesEnsured = true;
     }
-  }
+  })();
+
+  return ensurePromise;
 }

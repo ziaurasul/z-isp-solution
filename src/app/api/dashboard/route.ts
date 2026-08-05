@@ -13,7 +13,6 @@ export async function GET() {
 
     // Current month boundaries
     const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 23, 59, 59, 999);
 
@@ -21,7 +20,19 @@ export async function GET() {
     const sevenDaysLater = new Date();
     sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
 
-    // Run all independent queries in parallel
+    // Pre-compute 6 month boundaries
+    const monthBounds: { month: string; start: Date; end: Date }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthBounds.push({
+        month: m,
+        start: new Date(d.getFullYear(), d.getMonth(), 1),
+        end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
+      });
+    }
+
+    // Batch ALL queries in parallel (was: sequential loop for 6 months)
     const [
       totalCustomers,
       activeConnections,
@@ -33,91 +44,39 @@ export async function GET() {
       recentPayments,
       connectionsByType,
       monthlyRevenueData,
+      monthlyExpensesData,
     ] = await Promise.all([
-      // 1. Total customers
-      db.customer.count({
-        where: { businessId },
-      }),
-
-      // 2. Active connections
-      db.connection.count({
-        where: { businessId, status: 'active' },
-      }),
-
-      // 3. Total monthly revenue (sum of active connection fees)
-      db.connection.aggregate({
-        where: { businessId, status: 'active' },
-        _sum: { monthlyFee: true },
-      }),
-
-      // 4. Total expenses this month
-      db.expense.aggregate({
-        where: {
-          businessId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        _sum: { amount: true },
-      }),
-
-      // 5. Total collected this month
-      db.payment.aggregate({
-        where: {
-          businessId,
-          createdAt: { gte: monthStart, lte: monthEnd },
-        },
-        _sum: { amount: true },
-      }),
-
-      // 6. Expiring connections (within 7 days)
-      db.connection.count({
-        where: {
-          businessId,
-          status: 'active',
-          expiresAt: { lte: sevenDaysLater, gte: now },
-        },
-      }),
-
-      // 7. Overdue invoices count
-      db.invoice.count({
-        where: {
-          businessId,
-          status: { in: ['unpaid', 'partial'] },
-          dueDate: { lt: now },
-        },
-      }),
-
-      // 8. Recent payments (last 10)
+      db.customer.count({ where: { businessId } }),
+      db.connection.count({ where: { businessId, status: 'active' } }),
+      db.connection.aggregate({ where: { businessId, status: 'active' }, _sum: { monthlyFee: true } }),
+      db.expense.aggregate({ where: { businessId, date: { gte: monthStart, lte: monthEnd } }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { businessId, createdAt: { gte: monthStart, lte: monthEnd } }, _sum: { amount: true } }),
+      db.connection.count({ where: { businessId, status: 'active', expiresAt: { lte: sevenDaysLater, gte: now } } }),
+      db.invoice.count({ where: { businessId, status: { in: ['unpaid', 'partial'] }, dueDate: { lt: now } } }),
       db.payment.findMany({
-        where: { businessId },
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          customer: {
-            select: { id: true, name: true, phone: true },
-          },
-          connection: {
-            select: { id: true, packageType: true, packageName: true },
-          },
-        },
+        where: { businessId }, take: 10, orderBy: { createdAt: 'desc' },
+        include: { customer: { select: { id: true, name: true, phone: true } }, connection: { select: { id: true, packageType: true, packageName: true } } },
       }),
-
-      // 9. Connections by type
-      db.connection.groupBy({
-        by: ['packageType'],
-        where: { businessId, status: 'active' },
-        _count: { id: true },
-      }),
-
-      // 10. Monthly revenue data (last 6 months)
-      getLast6MonthsData(businessId),
+      db.connection.groupBy({ by: ['packageType'], where: { businessId, status: 'active' }, _count: { id: true } }),
+      // Batch all 6 month revenue queries in parallel instead of sequential loop
+      Promise.all(monthBounds.map(m =>
+        db.payment.aggregate({ where: { businessId, createdAt: { gte: m.start, lte: m.end } }, _sum: { amount: true } })
+      )),
+      // Batch all 6 month expense queries in parallel
+      Promise.all(monthBounds.map(m =>
+        db.expense.aggregate({ where: { businessId, date: { gte: m.start, lte: m.end } }, _sum: { amount: true } })
+      )),
     ]);
 
-    // Build connections by type object
-    const connByType: Record<string, number> = {
-      internet: 0,
-      cable: 0,
-      iptv: 0,
-    };
+    // Build monthly revenue data from batched results
+    const monthlyRevenueData2 = monthBounds.map((m, i) => ({
+      month: m.month,
+      revenue: monthlyRevenueData[i]._sum.amount || 0,
+      expenses: monthlyExpensesData[i]._sum.amount || 0,
+    }));
+
+    // Build connections by type
+    const connByType: Record<string, number> = { internet: 0, cable: 0, iptv: 0 };
     for (const item of connectionsByType) {
       connByType[item.packageType] = item._count.id;
     }
@@ -131,51 +90,11 @@ export async function GET() {
       expiringConnectionsCount,
       overdueInvoicesCount,
       recentPayments,
-      monthlyRevenueData,
+      monthlyRevenueData: monthlyRevenueData2,
       connectionsByType: connByType,
     });
   } catch (error) {
     console.error('Dashboard GET error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
-}
-
-/**
- * Gets revenue and expense data for the last 6 months for chart display.
- */
-async function getLast6MonthsData(businessId: string) {
-  const now = new Date();
-  const months: { month: string; revenue: number; expenses: number }[] = [];
-
-  for (let i = 5; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-    const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 23, 59, 59, 999);
-
-    const [revenueResult, expenseResult] = await Promise.all([
-      db.payment.aggregate({
-        where: {
-          businessId,
-          createdAt: { gte: monthStart, lte: monthEnd },
-        },
-        _sum: { amount: true },
-      }),
-      db.expense.aggregate({
-        where: {
-          businessId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        _sum: { amount: true },
-      }),
-    ]);
-
-    months.push({
-      month: monthStr,
-      revenue: revenueResult._sum.amount || 0,
-      expenses: expenseResult._sum.amount || 0,
-    });
-  }
-
-  return months;
 }

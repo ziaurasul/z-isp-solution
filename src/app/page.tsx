@@ -207,7 +207,7 @@ function CustomersPage({business:_b,onBulk}:{business:Business;onBulk:()=>void})
   const openCreate=()=>{setForm({name:'',phone:'',email:'',address:'',cnic:'',status:'active'});setDlg({open:true,edit:null});};
   const openEdit=(c:Customer)=>{setForm({name:c.name,phone:c.phone,email:c.email||'',address:c.address||'',cnic:c.cnic||'',status:c.status});setDlg({open:true,edit:c});};
   const save=async()=>{if(!form.name||!form.phone)return;try{if(dlg.edit){await api('/api/customers/'+dlg.edit.id,{method:'PUT',body:JSON.stringify(form)});}else{await api('/api/customers',{method:'POST',body:JSON.stringify(form)});}setDlg({open:false,edit:null});fetch();}catch(e:any){alert(e.message);}};
-  const del=async(id:string)=>{if(!confirm('Delete this customer?'))return;await api('/api/customers/'+id,{method:'DELETE'});fetch();};
+  const del=async(id:string)=>{if(!confirm('Delete this customer?'))return;try{await api('/api/customers/'+id,{method:'DELETE'});fetch();}catch(e:any){alert(e.message);}};
   return(
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-2 justify-between"><SB value={search} onChange={v=>{setSearch(v);setPage(1);}} placeholder="Search customers..."/>
@@ -401,7 +401,7 @@ function ExpensesPage({business:_b,onBulk}:{business:Business;onBulk:()=>void}){
 // ===== NOTIFICATIONS =====
 function NotificationsPage({business:_b}:{business:Business}){
   const [data,setData]=useState<Notif[]>([]);const [loading,setLoading]=useState(true);
-  const fetch=useCallback(async()=>{setLoading(true);try{setData(await api<Notif[]>('/api/notifications?limit=50'));}catch{}finally{setLoading(false);}},[]);
+  const fetch=useCallback(async()=>{setLoading(true);try{setData((await api<{data:Notif[]}>('/api/notifications?limit=50')).data);}catch{}finally{setLoading(false);}},[]);
   useEffect(()=>{fetch();},[fetch]);
   const markRead=async(id:string)=>{await api('/api/notifications/'+id,{method:'PUT',body:JSON.stringify({isRead:true})});fetch();};
   const del=async(id:string)=>{await api('/api/notifications/'+id,{method:'DELETE'});fetch();};
@@ -534,7 +534,7 @@ function SettingsPage({business,refreshBiz}:{business:Business;refreshBiz:()=>vo
         <Button onClick={save} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">Save Invoice Settings</Button>
       </CardContent></Card>
       <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">WhatsApp Integration</CardTitle></CardHeader><CardContent className="space-y-4">
-        <div className="flex items-center justify-between"><div><p className="font-medium text-sm">Enable WhatsApp</p><p className="text-xs text-gray-500">Send messages via WhatsApp Business API</p></div><button onClick={()=>setForm({...form,whatsappEnabled:!form.whatsappEnabled})} className={'relative w-11 h-6 rounded-full transition-colors '+(form.whatsappEnabled?'bg-emerald-600':'bg-gray-300')}><div className={'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform '+(form.whatsappEnabled?'translate-x-5.5 left-0.5':'left-0.5')}/></button></div>
+        <div className="flex items-center justify-between"><div><p className="font-medium text-sm">Enable WhatsApp</p><p className="text-xs text-gray-500">Send messages via WhatsApp Business API</p></div><button onClick={()=>setForm({...form,whatsappEnabled:!form.whatsappEnabled})} className={'relative w-11 h-6 rounded-full transition-colors '+(form.whatsappEnabled?'bg-emerald-600':'bg-gray-300')}><div className={'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform '+(form.whatsappEnabled?'translate-x-[22px] left-0.5':'left-0.5')}/></button></div>
         {form.whatsappEnabled&&<div><Label>WhatsApp Token</Label><Input value={form.whatsappToken} onChange={e=>setForm({...form,whatsappToken:e.target.value})} placeholder="Your WhatsApp Business API token"/></div>}
         <Button onClick={save} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">Save WhatsApp Settings</Button>
       </CardContent></Card>
@@ -577,7 +577,7 @@ function AdminPage(){
       <Dialog open={editDlg.open} onOpenChange={o=>setEditDlg({open:o,biz:null})}><DialogContent><DialogHeader><DialogTitle>Manage: {editDlg.biz?.name}</DialogTitle><DialogDescription>Update plan, status, or assign custom expiry date</DialogDescription></DialogHeader><div className="space-y-4">
         <div><Label>Plan</Label><Select value={form.plan} onValueChange={v=>setForm({...form,plan:v})}><SelectTrigger className="mt-1"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="trial">Trial</SelectItem><SelectItem value="basic">Basic</SelectItem><SelectItem value="pro">Pro</SelectItem><SelectItem value="enterprise">Enterprise</SelectItem></SelectContent></Select></div>
         <div><Label>Custom Expiry / Valid Until Date</Label><p className="text-xs text-gray-500 mb-1">Assign any date - useful when customer purchases a specific duration</p><Input type="date" value={form.trialEndsAt} onChange={e=>setForm({...form,trialEndsAt:e.target.value})}/></div>
-        <div className="flex items-center justify-between"><div><Label>Status</Label><p className="text-xs text-gray-500">Active businesses can use the system</p></div><button onClick={()=>setForm({...form,isActive:!form.isActive})} className={'relative w-11 h-6 rounded-full transition-colors '+(form.isActive?'bg-emerald-600':'bg-gray-300')}><div className={'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform '+(form.isActive?'translate-x-5 left-0.5':'left-0.5')}/></button></div>
+        <div className="flex items-center justify-between"><div><Label>Status</Label><p className="text-xs text-gray-500">Active businesses can use the system</p></div><button onClick={()=>setForm({...form,isActive:!form.isActive})} className={'relative w-11 h-6 rounded-full transition-colors '+(form.isActive?'bg-emerald-600':'bg-gray-300')}><div className={'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform '+(form.isActive?'translate-x-[20px] left-0.5':'left-0.5')}/></button></div>
         <Button onClick={saveEdit} className="w-full bg-emerald-600 hover:bg-emerald-700">Save Changes</Button>
       </div></DialogContent></Dialog>
       {/* Deep Dive Dialog */}
@@ -621,7 +621,7 @@ export default function Home(){
 
   const refreshBiz=useCallback(async()=>{try{const b=await api<Business>('/api/auth/me');setBusiness(b);setBizForRefresh(x=>x+1);}catch{}},[]);
 
-  useEffect(()=>{if(!business)return;(async()=>{try{const ns=await api<Notif[]>('/api/notifications?limit=50');setNotifCount(ns.filter(n=>!n.isRead).length);}catch{}})();},[business,page,bizForRefresh]);
+  useEffect(()=>{if(!business)return;(async()=>{try{const ns=await api<{unreadCount:number}>('/api/notifications?limit=1');setNotifCount(ns.unreadCount||0);}catch{}})();},[business,page,bizForRefresh]);
 
   // Keyboard shortcut for search
   useEffect(()=>{const handler=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();setSearchOpen(true);}};window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler);},[]);
@@ -639,12 +639,12 @@ export default function Home(){
       case 'connections':return <ErrBound><ConnectionsPage business={business}/></ErrBound>;
       case 'billing':return <ErrBound><BillingPage business={business} refreshBiz={refreshBiz}/></ErrBound>;
       case 'expenses':return <ErrBound><ExpensesPage business={business} onBulk={()=>setBulkOpen(true)}/></ErrBound>;
-      case 'vendors':return <VendorsPage business={business}/>;
-      case 'employees':return <EmployeesPage business={business}/>;
+      case 'vendors':return <ErrBound><VendorsPage business={business}/></ErrBound>;
+      case 'employees':return <ErrBound><EmployeesPage business={business}/></ErrBound>;
       case 'reports':return <ErrBound><ReportsPage business={business}/></ErrBound>;
       case 'messages':return <ErrBound><MessagesPage business={business}/></ErrBound>;
-      case 'notifications':return <NotificationsPage business={business}/>;
-      case 'settings':return <SettingsPage business={business} refreshBiz={refreshBiz}/>;
+      case 'notifications':return <ErrBound><NotificationsPage business={business}/></ErrBound>;
+      case 'settings':return <ErrBound><SettingsPage business={business} refreshBiz={refreshBiz}/></ErrBound>;
       case 'admin':return <ErrBound><AdminPage/></ErrBound>;
       default:return <ErrBound><DashboardPage business={business}/></ErrBound>;
     }
@@ -701,6 +701,6 @@ export default function Home(){
       </main>
 
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} onNav={setPage}/>
-      <BulkUploadDlg open={bulkOpen} onOpenChange={setBulkOpen} onDone={()=>{}}/>
+      <BulkUploadDlg open={bulkOpen} onOpenChange={setBulkOpen} onDone={()=>setBizForRefresh(x=>x+1)}/>
     </div></TooltipProvider>);
 }
