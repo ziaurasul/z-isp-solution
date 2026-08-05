@@ -40,12 +40,16 @@ export async function PUT(
     }
     const { id } = await params;
     const body = await request.json();
-    const { plan, isActive } = body;
+    const { plan, isActive, trialEndsAt } = body;
+    const updateData: any = {};
+    if (plan !== undefined) updateData.plan = plan;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (trialEndsAt !== undefined) updateData.trialEndsAt = trialEndsAt ? new Date(trialEndsAt) : null;
     const business = await db.business.update({
       where: { id },
-      data: { ...(plan !== undefined && { plan }), ...(isActive !== undefined && { isActive }) },
+      data: updateData,
     });
-    return NextResponse.json({ id: business.id, name: business.name, plan: business.plan, isActive: business.isActive });
+    return NextResponse.json({ id: business.id, name: business.name, plan: business.plan, isActive: business.isActive, trialEndsAt: business.trialEndsAt });
   } catch (error) {
     console.error('Admin business update error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
