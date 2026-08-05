@@ -240,8 +240,8 @@ function ConnectionsPage({business:_b}:{business:Business}){
   const [form,setForm]=useState({customerId:'',packageType:'internet',packageName:'',speed:'',monthlyFee:'',status:'active',expiresAt:''});
   const fetch=useCallback(async()=>{setLoading(true);try{const r=await api<PaginatedResponse<any>>(`/api/connections?page=${page}&limit=20&search=${search}`);setData(r.data);setTotal(r.total);}catch{}finally{setLoading(false);}},[page,search]);
   useEffect(()=>{fetch();},[fetch]);
-  const openCreate=async()=>{const cs=await api<Customer[]>('/api/customers?limit=100');setForm({customerId:'',packageType:'internet',packageName:'',speed:'',monthlyFee:'',status:'active',expiresAt:''});setDlg({open:true,edit:null,customers:cs});};
-  const openEdit=async(c:any)=>{const cs=await api<Customer[]>('/api/customers?limit=100');setForm({customerId:c.customerId,packageType:c.packageType,packageName:c.packageName||'',speed:c.speed||'',monthlyFee:String(c.monthlyFee),status:c.status,expiresAt:c.expiresAt?c.expiresAt.slice(0,10):''});setDlg({open:true,edit:c,customers:cs});};
+  const openCreate=async()=>{const cs=(await api<PaginatedResponse<Customer>>('/api/customers?limit=100')).data;setForm({customerId:'',packageType:'internet',packageName:'',speed:'',monthlyFee:'',status:'active',expiresAt:''});setDlg({open:true,edit:null,customers:cs});};
+  const openEdit=async(c:any)=>{const cs=(await api<PaginatedResponse<Customer>>('/api/customers?limit=100')).data;setForm({customerId:c.customerId,packageType:c.packageType,packageName:c.packageName||'',speed:c.speed||'',monthlyFee:String(c.monthlyFee),status:c.status,expiresAt:c.expiresAt?c.expiresAt.slice(0,10):''});setDlg({open:true,edit:c,customers:cs});};
   const save=async()=>{if(!form.customerId||!form.monthlyFee)return;try{const body={...form,monthlyFee:parseFloat(form.monthlyFee),expiresAt:form.expiresAt||null};if(dlg.edit){await api('/api/connections/'+dlg.edit.id,{method:'PUT',body:JSON.stringify(body)});}else{await api('/api/connections',{method:'POST',body:JSON.stringify(body)});}setDlg({open:false,edit:null,customers:[]});fetch();}catch(e:any){alert(e.message);}};
   const del=async(id:string)=>{if(!confirm('Delete?'))return;await api('/api/connections/'+id,{method:'DELETE'});fetch();};
   return(
@@ -277,7 +277,7 @@ function BillingPage({business,refreshBiz}:any){
   const fetchInv=useCallback(async()=>{setLoading(true);try{const r=await api<PaginatedResponse<Invoice>>(`/api/invoices?page=${page}&limit=20&search=${search}`);setInv(r.data);setTotal(r.total);}catch{}finally{setLoading(false);}},[page,search]);
   const fetchPay=useCallback(async()=>{setLoading(true);try{const r=await api<PaginatedResponse<Payment>>(`/api/payments?page=${page}&limit=20&search=${search}`);setPay(r.data);setTotal(r.total);}catch{}finally{setLoading(false);}},[page,search]);
   useEffect(()=>{if(tab==='invoices')fetchInv();else fetchPay();},[tab,fetchInv,fetchPay]);
-  const openPay=async(inv?:Invoice)=>{const cs=await api<any[]>('/api/connections?limit=200');setPayForm({connectionId:inv?.connectionId||'',customerId:inv?.connection?.customerId||'',amount:inv?String(inv.amount):'',method:'cash',note:'',collectedBy:''});setPayDlg({open:true,inv:inv||null,connections:cs});};
+  const openPay=async(inv?:Invoice)=>{const cs=(await api<PaginatedResponse<any>>('/api/connections?limit=200')).data;setPayForm({connectionId:inv?.connectionId||'',customerId:inv?.connection?.customerId||'',amount:inv?String(inv.amount):'',method:'cash',note:'',collectedBy:''});setPayDlg({open:true,inv:inv||null,connections:cs});};
   const savePay=async()=>{if(!payForm.connectionId||!payForm.amount)return;try{await api('/api/payments',{method:'POST',body:JSON.stringify({...payForm,amount:parseFloat(payForm.amount),invoiceId:payDlg.inv?.id||null})});setPayDlg({open:false,inv:null,connections:[]});if(tab==='invoices')fetchInv();else fetchPay();}catch(e:any){alert(e.message);}};
   return(
     <div className="space-y-4">
@@ -376,8 +376,8 @@ function ExpensesPage({business:_b,onBulk}:{business:Business;onBulk:()=>void}){
   const [form,setForm]=useState({category:'other',amount:'',description:'',date:new Date().toISOString().slice(0,10),vendorId:'',employeeId:''});
   const fetch=useCallback(async()=>{setLoading(true);try{const r=await api<PaginatedResponse<Expense>>(`/api/expenses?page=${page}&limit=20&search=${search}`);setData(r.data);setTotal(r.total);}catch{}finally{setLoading(false);}},[page,search]);
   useEffect(()=>{fetch();},[fetch]);
-  const openCreate=async()=>{const[v,e]=await Promise.all([api<Vendor[]>('/api/vendors?limit=100'),api<Employee[]>('/api/employees?limit=100')]);setVendors(v);setEmployees(e);setForm({category:'other',amount:'',description:'',date:new Date().toISOString().slice(0,10),vendorId:'',employeeId:''});setDlg({open:true,edit:null});};
-  const openEdit=async(ex:Expense)=>{const[v,e]=await Promise.all([api<Vendor[]>('/api/vendors?limit=100'),api<Employee[]>('/api/employees?limit=100')]);setVendors(v);setEmployees(e);setForm({category:ex.category,amount:String(ex.amount),description:ex.description||'',date:ex.date.slice(0,10),vendorId:ex.vendorId||'',employeeId:ex.employeeId||''});setDlg({open:true,edit:ex});};
+  const openCreate=async()=>{const[v,e]=await Promise.all([(await api<PaginatedResponse<Vendor>>('/api/vendors?limit=100')).data,(await api<PaginatedResponse<Employee>>('/api/employees?limit=100')).data]);setVendors(v);setEmployees(e);setForm({category:'other',amount:'',description:'',date:new Date().toISOString().slice(0,10),vendorId:'',employeeId:''});setDlg({open:true,edit:null});};
+  const openEdit=async(ex:Expense)=>{const[v,e]=await Promise.all([(await api<PaginatedResponse<Vendor>>('/api/vendors?limit=100')).data,(await api<PaginatedResponse<Employee>>('/api/employees?limit=100')).data]);setVendors(v);setEmployees(e);setForm({category:ex.category,amount:String(ex.amount),description:ex.description||'',date:ex.date.slice(0,10),vendorId:ex.vendorId||'',employeeId:ex.employeeId||''});setDlg({open:true,edit:ex});};
   const save=async()=>{if(!form.amount)return;try{const body={...form,amount:parseFloat(form.amount),vendorId:form.vendorId||null,employeeId:form.employeeId||null};if(dlg.edit){await api('/api/expenses/'+dlg.edit.id,{method:'PUT',body:JSON.stringify(body)});}else{await api('/api/expenses',{method:'POST',body:JSON.stringify(body)});}setDlg({open:false,edit:null});fetch();}catch(e:any){alert(e.message);}};
   const del=async(id:string)=>{if(!confirm('Delete?'))return;await api('/api/expenses/'+id,{method:'DELETE'});fetch();};
   return(
@@ -458,20 +458,21 @@ function ReportsPage({business:_b}:{business:Business}){
 // ===== MESSAGES =====
 function MessagesPage({business:_b}:{business:Business}){
   const [customers,setCustomers]=useState<Customer[]>([]);
+  const [custFilter,setCustFilter]=useState('');
   const [selectedCust,setSelectedCust]=useState<string>('');
   const [messages,setMessages]=useState<Message[]>([]);
   const [msg,setMsg]=useState('');
   const [channel,setChannel]=useState('inapp');
   const [loadingMsgs,setLoadingMsgs]=useState(false);
-  useEffect(()=>{(async()=>{try{setCustomers(await api<Customer[]>('/api/customers?limit=200'));}catch{}})();},[]);
+  useEffect(()=>{(async()=>{try{setCustomers((await api<PaginatedResponse<Customer>>('/api/customers?limit=200')).data);}catch{}})();},[]);
   const loadMsgs=useCallback(async(custId:string)=>{setSelectedCust(custId);setLoadingMsgs(true);try{const r=await api<{data:Message[]}>(`/api/messages?customerId=${custId}&limit=100`);setMessages(r.data.reverse());}catch{}finally{setLoadingMsgs(false);}},[]);
   const send=async()=>{if(!msg.trim()||!selectedCust)return;try{await api('/api/messages',{method:'POST',body:JSON.stringify({customerId:selectedCust,channel,content:msg.trim(),sendWhatsapp:channel==='whatsapp'})});setMsg('');loadMsgs(selectedCust);}catch(e:any){alert(e.message);}};
   const selected=customers.find(c=>c.id===selectedCust);
   return(
     <div className="flex gap-4 h-[calc(100vh-180px)] min-h-[400px]">
       <div className="w-72 flex-shrink-0 border rounded-xl overflow-hidden flex flex-col bg-white hidden md:flex">
-        <div className="p-3 border-b"><input placeholder="Search customers..." className="w-full text-sm outline-none bg-gray-50 rounded-lg px-3 py-2" onChange={e=>{}}/></div>
-        <ScrollArea className="flex-1">{customers.map(c=>(
+        <div className="p-3 border-b"><input placeholder="Search customers..." value={custFilter} onChange={e=>setCustFilter(e.target.value)} className="w-full text-sm outline-none bg-gray-50 rounded-lg px-3 py-2"/></div>
+        <ScrollArea className="flex-1">{customers.filter(c=>!custFilter||c.name.toLowerCase().includes(custFilter.toLowerCase())||c.phone.includes(custFilter)).map(c=>(
           <button key={c.id} onClick={()=>loadMsgs(c.id)} className={'w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 transition-colors border-b border-gray-50 '+(selectedCust===c.id?'bg-emerald-50':'')}>
             <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0"><User className="h-4 w-4 text-emerald-700"/></div>
             <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{c.name}</p><p className="text-xs text-gray-500 truncate">{c.phone}</p></div>
