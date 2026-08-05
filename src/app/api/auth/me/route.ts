@@ -28,6 +28,9 @@ export async function GET() {
       trialEndsAt: business.trialEndsAt,
       isActive: business.isActive,
       isPlatformAdmin: business.isPlatformAdmin,
+      invoiceTemplate: business.invoiceTemplate,
+      invoiceColor: business.invoiceColor,
+      whatsappEnabled: business.whatsappEnabled,
       trialExpired,
       createdAt: business.createdAt,
     });

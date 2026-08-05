@@ -53,11 +53,13 @@ const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','D
 interface SR { type:string; id:string; title:string; subtitle:string; extra:string; }
 
 async function api<T>(p:string,o?:RequestInit):Promise<T>{ const r=await fetch(p,{...o,headers:{'Content-Type':'application/json',...o?.headers}}); if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error||'Failed');} return r.json(); }
+class ErrBound extends React.Component<{children:React.ReactNode},{hasError:boolean;error:Error|null}>{state={hasError:false,error:null};static getDerivedStateFromError(e:Error){return{hasError:true,error:e};}render(){if(this.state.hasError)return<div className="flex flex-col items-center justify-center min-h-[300px] p-8 text-center"><div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-4"><AlertCircle className="h-7 w-7 text-red-500"/></div><p className="font-medium text-gray-900">Something went wrong</p><p className="text-sm text-gray-500 mt-1 max-w-md">{this.state.error?.message}</p><Button onClick={()=>this.setState({hasError:false,error:null})} className="mt-4 bg-emerald-600 hover:bg-emerald-700" size="sm">Try Again</Button></div>;return this.props.children;}}
 const fc=(n:number)=>'Rs '+Number(n||0).toLocaleString();
 const fd=(d:string)=>d?new Date(d).toLocaleDateString('en-PK',{day:'2-digit',month:'short',year:'numeric'}):'-';
 const fdt=(d:string)=>d?new Date(d).toLocaleDateString('en-PK',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
 const fm=(m:string)=>{if(!m||m.length<7)return m;const[y,mo]=m.split('-');return MN[parseInt(mo)-1]+' '+y;};
 
+const safeMap=(arr:any,fn:any)=>Array.isArray(arr)?arr.map(fn):[];
 function SkelR({c=5}:{c?:number}){return <TableRow>{Array.from({length:c}).map((_,i)=><TableCell key={i}><div className="h-4 bg-gray-200 rounded animate-pulse w-full"/></TableCell>)}</TableRow>;}
 function SkelC({n=4}:{n?:number}){return <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{Array.from({length:n}).map((_,i)=><Card key={i} className="border-0 shadow-sm"><CardContent className="p-5"><div className="h-10 w-10 bg-gray-200 rounded-xl animate-pulse"/><div className="mt-3 h-7 w-28 bg-gray-200 rounded animate-pulse"/><div className="mt-2 h-4 w-36 bg-gray-200 rounded animate-pulse"/></CardContent></Card>)}</div>;}
 function Emp({icon:I,title,desc}:{icon:React.ElementType;title:string;desc:string}){return <div className="flex flex-col items-center justify-center py-12 text-center"><div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-4"><I className="h-7 w-7 text-gray-400"/></div><p className="font-medium text-gray-600">{title}</p><p className="text-sm text-gray-400 mt-1">{desc}</p></div>;}
@@ -588,8 +590,8 @@ function AdminPage(){
               <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.monthlyRevenue)}</p><p className="text-xs text-gray-500">Monthly Revenue</p></div>
               <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.collectedThisMonth)}</p><p className="text-xs text-gray-500">Collected</p></div>
             </div>
-            <div><h4 className="text-sm font-semibold mb-2">Recent Customers ({deepDlg.data.customers?.length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{(deepDlg.data.customers||[]).slice(0,10).map((c:any)=><div key={c.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{c.name}</span><span className="text-gray-500">{c.phone}</span></div>)}</div></div>
-            <div><h4 className="text-sm font-semibold mb-2">Recent Payments ({deepDlg.data.payments?.length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{(deepDlg.data.payments||[]).slice(0,10).map((p:any)=><div key={p.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{p.customer?.name||'-'}</span><span className="font-medium">{fc(p.amount)}</span></div>)}</div></div>
+            <div><h4 className="text-sm font-semibold mb-2">Recent Customers ({safeMap(deepDlg.data?.customers,c=>c).length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{safeMap(deepDlg.data?.customers,c=>c).slice(0,10).map((c:any)=><div key={c.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{c.name}</span><span className="text-gray-500">{c.phone}</span></div>)}</div></div>
+            <div><h4 className="text-sm font-semibold mb-2">Recent Payments ({safeMap(deepDlg.data?.payments,p=>p).length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{safeMap(deepDlg.data?.payments,p=>p).slice(0,10).map((p:any)=><div key={p.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{p.customer?.name||'-'}</span><span className="font-medium">{fc(p.amount)}</span></div>)}</div></div>
           </div>
         ):<div className="text-center py-8"><RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400"/><p className="text-sm text-gray-500 mt-2">Loading...</p></div>}
       </DialogContent></Dialog>
@@ -615,7 +617,7 @@ export default function Home(){
   const [searchOpen,setSearchOpen]=useState(false);const [sidebarOpen,setSidebarOpen]=useState(false);const [bulkOpen,setBulkOpen]=useState(false);const [notifCount,setNotifCount]=useState(0);
   const [bizForRefresh,setBizForRefresh]=useState(0);
 
-  useEffect(()=>{(async()=>{try{const b=await api<Business>('/api/auth/me');if(b){setBusiness(b);if(b.isPlatformAdmin)setPage('admin');}}catch{}})();setLoading(false);},[]);
+  useEffect(()=>{(async()=>{try{const b=await api<Business>('/api/auth/me');if(b){setBusiness(b);if(b.isPlatformAdmin)setPage('admin');}}catch{}})().finally(()=>setLoading(false));},[]);
 
   const refreshBiz=useCallback(async()=>{try{const b=await api<Business>('/api/auth/me');setBusiness(b);setBizForRefresh(x=>x+1);}catch{}},[]);
 
@@ -632,19 +634,19 @@ export default function Home(){
 
   const renderPage=()=>{
     switch(page){
-      case 'dashboard':return <DashboardPage business={business}/>;
-      case 'customers':return <CustomersPage business={business} onBulk={()=>setBulkOpen(true)}/>;
-      case 'connections':return <ConnectionsPage business={business}/>;
-      case 'billing':return <BillingPage business={business} refreshBiz={refreshBiz}/>;
-      case 'expenses':return <ExpensesPage business={business} onBulk={()=>setBulkOpen(true)}/>;
+      case 'dashboard':return <ErrBound><DashboardPage business={business}/></ErrBound>;
+      case 'customers':return <ErrBound><CustomersPage business={business} onBulk={()=>setBulkOpen(true)}/></ErrBound>;
+      case 'connections':return <ErrBound><ConnectionsPage business={business}/></ErrBound>;
+      case 'billing':return <ErrBound><BillingPage business={business} refreshBiz={refreshBiz}/></ErrBound>;
+      case 'expenses':return <ErrBound><ExpensesPage business={business} onBulk={()=>setBulkOpen(true)}/></ErrBound>;
       case 'vendors':return <VendorsPage business={business}/>;
       case 'employees':return <EmployeesPage business={business}/>;
-      case 'reports':return <ReportsPage business={business}/>;
-      case 'messages':return <MessagesPage business={business}/>;
+      case 'reports':return <ErrBound><ReportsPage business={business}/></ErrBound>;
+      case 'messages':return <ErrBound><MessagesPage business={business}/></ErrBound>;
       case 'notifications':return <NotificationsPage business={business}/>;
       case 'settings':return <SettingsPage business={business} refreshBiz={refreshBiz}/>;
-      case 'admin':return <AdminPage/>;
-      default:return <DashboardPage business={business}/>;
+      case 'admin':return <ErrBound><AdminPage/></ErrBound>;
+      default:return <ErrBound><DashboardPage business={business}/></ErrBound>;
     }
   };
 
