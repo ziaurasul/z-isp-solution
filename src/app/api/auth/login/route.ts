@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, ensureTables } from '@/lib/db';
+import { db } from '@/lib/db';
 import { comparePassword, COOKIE_NAME } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -13,8 +13,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    await ensureTables();
 
     const business = await db.business.findUnique({
       where: { email },
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest) {
       secure: false,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
+      maxAge: 60 * 60 * 24 * 30,
     });
 
     return response;
