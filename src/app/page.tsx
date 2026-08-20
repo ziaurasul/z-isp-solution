@@ -11,7 +11,7 @@ import {
   FileText, ClipboardList, Shield, Zap, Monitor, Phone, Mail, MapPin,
   Inbox, ArrowLeft, User, WifiOff, Hash, MessageSquare, Upload,
   FileSpreadsheet, Palette, MessageCircle, Printer, Image, SendHorizonal,
-  LayoutDashboard, PieChart as PieChartIcon, Template, ChevronDown, Lock
+  LayoutDashboard, PieChart as PieChartIcon, ChevronDown, Lock, Landmark, Megaphone
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,7 +35,7 @@ import {
 import type {
   Business, Customer, Vendor, Employee, Connection, Invoice,
   Payment, Expense, Notification as Notif, DashboardData, Page, PaginatedResponse,
-  AdminBusiness, AdminStats, AdminBusinessesResponse, Message, ReportData
+  AdminBusiness, AdminStats, AdminBusinessesResponse, Message, ReportData, BankAccount
 } from '@/lib/types';
 
 const CC = ['#10b981','#f59e0b','#6366f1','#ef4444','#06b6d4','#8b5cf6','#ec4899','#14b8a6','#f97316'];
@@ -193,6 +193,14 @@ function DashboardPage({business}:{business:Business}){
       <Card className="border-0 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-base">Recent Payments</CardTitle></CardHeader><CardContent>
         {data.recentPayments.length===0?<Emp icon={CreditCard} title="No payments" desc="Payments will appear here"/>:
         <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{data.recentPayments.map(p=><TableRow key={p.id}><TableCell className="font-medium">{p.customer?.name||'-'}</TableCell><TableCell>{fc(p.amount)}</TableCell><TableCell><Badge variant="secondary">{p.method||'cash'}</Badge></TableCell><TableCell className="text-sm text-gray-500">{fdt(p.createdAt)}</TableCell></TableRow>)}</TableBody></Table></div>}
+      </CardContent></Card>
+      <Card className="border-0 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader><CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Button variant="outline" size="sm" className="text-orange-600 hover:bg-orange-50" onClick={async()=>{try{const r=await api<{messagesCreated:number}>('/api/reminders',{method:'POST',body:JSON.stringify({type:'expiring'})});alert(r.messagesCreated+' reminder messages sent!');}catch(e:any){alert(e.message);}}}><Megaphone className="h-4 w-4 mr-1"/>Expiry Reminders</Button>
+          <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={async()=>{try{const r=await api<{messagesCreated:number}>('/api/reminders',{method:'POST',body:JSON.stringify({type:'overdue'})});alert(r.messagesCreated+' overdue reminders sent!');}catch(e:any){alert(e.message);}}}><AlertTriangle className="h-4 w-4 mr-1"/>Overdue Reminders</Button>
+          <Button variant="outline" size="sm" className="text-blue-600 hover:bg-blue-50" onClick={async()=>{try{const r=await api<{messagesCreated:number}>('/api/reminders',{method:'POST',body:JSON.stringify({type:'welcome'})});alert(r.messagesCreated+' welcome messages sent!');}catch(e:any){alert(e.message);}}}><Send className="h-4 w-4 mr-1"/>Welcome Messages</Button>
+          <Button variant="outline" size="sm" className="text-purple-600 hover:bg-purple-50" onClick={()=>{const msg=prompt('Enter maintenance notice message:');if(msg){api('/api/reminders',{method:'POST',body:JSON.stringify({type:'maintenance',message:msg})}).then(r=>alert('Sent to '+(r as any).messagesCreated+' customers!')).catch(e=>alert((e as any).message));}}}><Megaphone className="h-4 w-4 mr-1"/>Maintenance</Button>
+        </div>
       </CardContent></Card>
     </div>);
 }
@@ -513,6 +521,47 @@ function MessagesPage({business:_b}:{business:Business}){
     </div>);
 }
 
+// ===== BANK ACCOUNTS =====
+function BankAccountsPage({business:_b}:{business:Business}){
+  const [data,setData]=useState<BankAccount[]>([]);const [loading,setLoading]=useState(true);
+  const [dlg,setDlg]=useState<{open:boolean;edit:BankAccount|null}>({open:false,edit:null});
+  const [form,setForm]=useState({bankName:'',accountTitle:'',accountNumber:'',branch:'',type:'current',isDefault:false});
+  const fetch=useCallback(async()=>{setLoading(true);try{setData((await api<{data:BankAccount[]}>('/api/bank-accounts')).data);}catch{}finally{setLoading(false);}},[]);
+  useEffect(()=>{fetch();},[fetch]);
+  const openCreate=()=>{setForm({bankName:'',accountTitle:'',accountNumber:'',branch:'',type:'current',isDefault:false});setDlg({open:true,edit:null});};
+  const openEdit=(a:BankAccount)=>{setForm({bankName:a.bankName,accountTitle:a.accountTitle,accountNumber:a.accountNumber,branch:a.branch||'',type:a.type,isDefault:a.isDefault});setDlg({open:true,edit:a});};
+  const save=async()=>{if(!form.bankName||!form.accountTitle||!form.accountNumber)return;try{if(dlg.edit){await api('/api/bank-accounts/'+dlg.edit.id,{method:'PUT',body:JSON.stringify(form)});}else{await api('/api/bank-accounts',{method:'POST',body:JSON.stringify(form)});}setDlg({open:false,edit:null});fetch();}catch(e:any){alert(e.message);}};
+  const del=async(id:string)=>{if(!confirm('Delete this bank account?'))return;try{await api('/api/bank-accounts/'+id,{method:'DELETE'});fetch();}catch(e:any){alert(e.message);}};
+  return(
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-2 justify-between"><div/><Button onClick={openCreate} className="bg-emerald-600 hover:bg-emerald-700" size="sm"><Plus className="h-4 w-4 mr-2"/>Add Account</Button></div>
+      <Card className="border-0 shadow-sm"><CardContent className="p-0">
+        {loading?Array.from({length:3}).map((_,i)=><div key={i} className="p-4 border-b"><div className="h-5 bg-gray-200 rounded animate-pulse w-1/3"/><div className="h-3 bg-gray-200 rounded animate-pulse w-1/2 mt-2"/></div>):
+        data.length===0?<div className="p-8"><Emp icon={Landmark} title="No bank accounts" desc="Add your first bank account"/></div>:
+        <div className="divide-y">{data.map(a=>(
+          <div key={a.id} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0"><Landmark className="h-5 w-5 text-blue-600"/></div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2"><p className="font-medium text-sm">{a.bankName}</p>{a.isDefault&&<Badge className="bg-emerald-100 text-emerald-700" variant="secondary">Default</Badge>}</div>
+              <p className="text-xs text-gray-500 mt-0.5">{a.accountTitle} - {a.accountNumber}</p>
+              {a.branch&&<p className="text-xs text-gray-400">Branch: {a.branch}</p>}
+            </div>
+            <Badge variant="secondary" className="capitalize">{a.type}</Badge>
+            <div className="flex gap-1"><Button variant="ghost" size="sm" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button><Button variant="ghost" size="sm" className="text-red-500" onClick={()=>del(a.id)}><Trash2 className="h-4 w-4"/></Button></div>
+          </div>
+        ))}</div>}
+      </CardContent></Card>
+      <Dialog open={dlg.open} onOpenChange={o=>setDlg({open:o,edit:null})}><DialogContent><DialogHeader><DialogTitle>{dlg.edit?'Edit':'Add'} Bank Account</DialogTitle></DialogHeader><div className="space-y-3">
+        <div><Label>Bank Name</Label><Input value={form.bankName} onChange={e=>setForm({...form,bankName:e.target.value})} placeholder="HBL, UBL, MCB..."/></div>
+        <div><Label>Account Title</Label><Input value={form.accountTitle} onChange={e=>setForm({...form,accountTitle:e.target.value})}/></div>
+        <div><Label>Account Number</Label><Input value={form.accountNumber} onChange={e=>setForm({...form,accountNumber:e.target.value})}/></div>
+        <div className="grid grid-cols-2 gap-3"><div><Label>Branch</Label><Input value={form.branch} onChange={e=>setForm({...form,branch:e.target.value})}/></div><div><Label>Type</Label><Select value={form.type} onValueChange={v=>setForm({...form,type:v})}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="current">Current</SelectItem><SelectItem value="savings">Savings</SelectItem></SelectContent></Select></div></div>
+        <div className="flex items-center justify-between"><Label>Set as Default</Label><button onClick={()=>setForm({...form,isDefault:!form.isDefault})} className={'relative w-11 h-6 rounded-full transition-colors '+(form.isDefault?'bg-emerald-600':'bg-gray-300')}><div className={'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform '+(form.isDefault?'translate-x-[22px] left-0.5':'left-0.5')}/></button></div>
+        <Button onClick={save} className="w-full bg-emerald-600 hover:bg-emerald-700">{dlg.edit?'Update':'Add'} Account</Button>
+      </div></DialogContent></Dialog>
+    </div>);
+}
+
 // ===== SETTINGS =====
 function SettingsPage({business,refreshBiz}:{business:Business;refreshBiz:()=>void}){
   const [form,setForm]=useState({name:business.name,phone:business.phone||'',address:business.address||'',invoiceTemplate:business.invoiceTemplate||'modern',invoiceColor:business.invoiceColor||'#10b981',whatsappEnabled:business.whatsappEnabled||false,whatsappToken:business.whatsappToken||''});
@@ -582,17 +631,23 @@ function AdminPage(){
         <Button onClick={saveEdit} className="w-full bg-emerald-600 hover:bg-emerald-700">Save Changes</Button>
       </div></DialogContent></Dialog>
       {/* Deep Dive Dialog */}
-      <Dialog open={deepDlg.open} onOpenChange={o=>setDeepDlg({open:o,bizId:null,data:null})}><DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Business Deep Dive</DialogTitle></DialogHeader>
+      <Dialog open={deepDlg.open} onOpenChange={o=>setDeepDlg({open:o,bizId:null,data:null})}><DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Business Deep Dive</DialogTitle></DialogHeader>
         {deepDlg.data?(
           <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{deepDlg.data.stats.totalCustomers}</p><p className="text-xs text-gray-500">Customers</p></div>
-              <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{deepDlg.data.stats.activeConnections}</p><p className="text-xs text-gray-500">Active Connections</p></div>
-              <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.monthlyRevenue)}</p><p className="text-xs text-gray-500">Monthly Revenue</p></div>
+              <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{deepDlg.data.stats.activeConnections}</p><p className="text-xs text-gray-500">Active Conn.</p></div>
+              <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.monthlyRevenue)}</p><p className="text-xs text-gray-500">Monthly Rev.</p></div>
               <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.collectedThisMonth)}</p><p className="text-xs text-gray-500">Collected</p></div>
+              <div className="bg-gray-50 rounded-lg p-3"><p className="text-lg font-bold">{fc(deepDlg.data.stats.expensesThisMonth)}</p><p className="text-xs text-gray-500">Expenses</p></div>
             </div>
-            <div><h4 className="text-sm font-semibold mb-2">Recent Customers ({safeMap(deepDlg.data?.customers,c=>c).length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{safeMap(deepDlg.data?.customers,c=>c).slice(0,10).map((c:any)=><div key={c.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{c.name}</span><span className="text-gray-500">{c.phone}</span></div>)}</div></div>
-            <div><h4 className="text-sm font-semibold mb-2">Recent Payments ({safeMap(deepDlg.data?.payments,p=>p).length||0})</h4><div className="max-h-32 overflow-y-auto space-y-1">{safeMap(deepDlg.data?.payments,p=>p).slice(0,10).map((p:any)=><div key={p.id} className="flex justify-between text-sm py-1 px-2 rounded hover:bg-gray-50"><span>{p.customer?.name||'-'}</span><span className="font-medium">{fc(p.amount)}</span></div>)}</div></div>
+            <Tabs defaultValue="customers"><TabsList className="w-full"><TabsTrigger value="customers">Customers ({safeMap(deepDlg.data?.customers,c=>c).length})</TabsTrigger><TabsTrigger value="connections">Connections ({safeMap(deepDlg.data?.connections,c=>c).length})</TabsTrigger><TabsTrigger value="payments">Payments ({safeMap(deepDlg.data?.payments,p=>p).length})</TabsTrigger><TabsTrigger value="invoices">Invoices ({safeMap(deepDlg.data?.invoices,i=>i).length})</TabsTrigger><TabsTrigger value="expenses">Expenses ({safeMap(deepDlg.data?.expenses,e=>e).length})</TabsTrigger></TabsList>
+            <TabsContent value="customers"><div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{safeMap(deepDlg.data?.customers,c=>c).slice(0,50).map((c:any)=><TableRow key={c.id}><TableCell className="font-medium text-sm">{c.name}</TableCell><TableCell className="text-sm">{c.phone}</TableCell><TableCell><Badge className={SC[c.status]||''} variant="secondary">{c.status}</Badge></TableCell></TableRow>)}</TableBody></Table></div></TabsContent>
+            <TabsContent value="connections"><div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Type</TableHead><TableHead>Fee</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{safeMap(deepDlg.data?.connections,c=>c).slice(0,50).map((c:any)=><TableRow key={c.id}><TableCell className="text-sm">{c.customer?.name||'-'}</TableCell><TableCell><Badge className={PC[c.packageType]||''} variant="secondary">{c.packageType}</Badge></TableCell><TableCell className="text-sm">{fc(c.monthlyFee)}</TableCell><TableCell><Badge className={SC[c.status]||''} variant="secondary">{c.status}</Badge></TableCell></TableRow>)}</TableBody></Table></div></TabsContent>
+            <TabsContent value="payments"><div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{safeMap(deepDlg.data?.payments,p=>p).slice(0,50).map((p:any)=><TableRow key={p.id}><TableCell className="text-sm">{p.customer?.name||'-'}</TableCell><TableCell className="text-sm font-medium">{fc(p.amount)}</TableCell><TableCell className="text-sm">{p.method||'cash'}</TableCell><TableCell className="text-xs text-gray-500">{fdt(p.createdAt)}</TableCell></TableRow>)}</TableBody></Table></div></TabsContent>
+            <TabsContent value="invoices"><div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Customer</TableHead><TableHead>Month</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{safeMap(deepDlg.data?.invoices,i=>i).slice(0,50).map((i:any)=><TableRow key={i.id}><TableCell className="text-sm">{i.connection?.customer?.name||'-'}</TableCell><TableCell className="text-sm">{i.month}</TableCell><TableCell className="text-sm">{fc(i.amount)}</TableCell><TableCell><Badge className={SC[i.status]||''} variant="secondary">{i.status}</Badge></TableCell></TableRow>)}</TableBody></Table></div></TabsContent>
+            <TabsContent value="expenses"><div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{safeMap(deepDlg.data?.expenses,e=>e).slice(0,50).map((e:any)=><TableRow key={e.id}><TableCell className="text-sm">{e.category}</TableCell><TableCell className="text-sm">{e.description||'-'}</TableCell><TableCell className="text-sm">{fc(e.amount)}</TableCell><TableCell className="text-xs text-gray-500">{fd(e.date)}</TableCell></TableRow>)}</TableBody></Table></div></TabsContent>
+            </Tabs>
           </div>
         ):<div className="text-center py-8"><RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400"/><p className="text-sm text-gray-500 mt-2">Loading...</p></div>}
       </DialogContent></Dialog>
@@ -607,6 +662,7 @@ const NAV:Record<string,Record<string,any>> = {
   expenses:{icon:Receipt,label:'Expenses'},
   vendors:{icon:Building2,label:'Vendors'},
   employees:{icon:UserCog,label:'Employees'},
+  'bank-accounts':{icon:Landmark,label:'Bank Accounts'},
   reports:{icon:BarChart3,label:'Reports'},
   messages:{icon:MessageSquare,label:'Messages'},
   notifications:{icon:Bell,label:'Notifications'},
@@ -642,6 +698,7 @@ export default function Home(){
       case 'expenses':return <ErrBound><ExpensesPage business={business} onBulk={()=>setBulkOpen(true)}/></ErrBound>;
       case 'vendors':return <ErrBound><VendorsPage business={business}/></ErrBound>;
       case 'employees':return <ErrBound><EmployeesPage business={business}/></ErrBound>;
+      case 'bank-accounts':return <ErrBound><BankAccountsPage business={business}/></ErrBound>;
       case 'reports':return <ErrBound><ReportsPage business={business}/></ErrBound>;
       case 'messages':return <ErrBound><MessagesPage business={business}/></ErrBound>;
       case 'notifications':return <ErrBound><NotificationsPage business={business}/></ErrBound>;
